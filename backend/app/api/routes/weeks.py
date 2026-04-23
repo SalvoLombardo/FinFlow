@@ -1,6 +1,78 @@
-from fastapi import APIRouter
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user
+from app.core.database import get_db
+from app.models.user import User
+from app.models.week import FinancialWeek
+from app.schemas.week import WeekCreate, WeekRead, WeekUpdate
 
 router = APIRouter()
 
-# Phase 1.4: GET /, POST /, GET /{week_id}, PUT /{week_id}
-# PUT /{week_id} closing a week publishes WEEK_CLOSED to SNS (Phase 2)
+
+@router.get("/", response_model=list[WeekRead])
+async def list_weeks(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(FinancialWeek)
+        .where(FinancialWeek.user_id == current_user.id)
+        .order_by(FinancialWeek.week_start)
+    )
+    return result.scalars().all()
+
+
+@router.post("/", response_model=WeekRead, status_code=status.HTTP_201_CREATED)
+async def create_week(
+    body: WeekCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    week = FinancialWeek(**body.model_dump(), user_id=current_user.id)
+    db.add(week)
+    await db.flush()
+    return week
+
+
+@router.get("/{week_id}", response_model=WeekRead)
+async def get_week(
+    week_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(FinancialWeek).where(
+            FinancialWeek.id == week_id,
+            FinancialWeek.user_id == current_user.id,
+        )
+    )
+    week = result.scalar_one_or_none()
+    if not week:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Week not found")
+    return week
+
+
+@router.put("/{week_id}", response_model=WeekRead)
+async def update_week(
+    week_id: uuid.UUID,
+    body: WeekUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(FinancialWeek).where(
+            FinancialWeek.id == week_id,
+            FinancialWeek.user_id == current_user.id,
+        )
+    )
+    week = result.scalar_one_or_none()
+    if not week:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Week not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(week, field, value)
+    # Phase 2: publish WEEK_CLOSED to SNS when closing_balance is set
+    return week
