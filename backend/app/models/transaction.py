@@ -29,4 +29,4 @@ class Transaction(Base):
     recurrence_rule: Mapped[str | None] = mapped_column(String(50), nullable=True)
     transaction_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), default=datetime.utcnow)

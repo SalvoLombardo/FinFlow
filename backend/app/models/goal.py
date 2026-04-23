@@ -26,4 +26,4 @@ class Goal(Base):
     target_date: Mapped[date] = mapped_column(Date, nullable=False)
     current_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     status: Mapped[GoalStatus] = mapped_column(Enum(GoalStatus), default=GoalStatus.active)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), default=datetime.utcnow)

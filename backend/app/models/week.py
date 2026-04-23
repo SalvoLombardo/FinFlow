@@ -20,4 +20,4 @@ class FinancialWeek(Base):
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     closing_balance: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), default=datetime.utcnow)
