@@ -1,0 +1,62 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  celery_worker:
+    build: ./workers
+    command: celery -A celery_app.config worker --loglevel=info
+    env_file:
+      - .env
+    volumes:
+      - ./workers:/app
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  celery_beat:
+    build: ./workers
+    command: celery -A celery_app.config beat --loglevel=info --scheduler redbeat.RedBeatScheduler
+    env_file:
+      - .env
+    volumes:
+      - ./workers:/app
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  kafka_audit_consumer:
+    build: ./workers
+    command: python -m kafka_audit.consumer
+    env_file:
+      - .env
+    volumes:
+      - ./workers:/app
+      - ./audit_archive:/app/audit_archive
+    depends_on:
+      kafka:
+        condition: service_healthy
