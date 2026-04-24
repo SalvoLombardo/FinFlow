@@ -8,7 +8,7 @@ from app.events.schemas import FinFlowEvent
 
 logger = logging.getLogger(__name__)
 
-_MAX_ATTEMPTS = 3
+
 
 # Module-level session: lightweight, safe to share across async calls.
 _session = aioboto3.Session()
@@ -31,7 +31,7 @@ class SNSPublisher:
             )
             return
 
-        for attempt in range(_MAX_ATTEMPTS):
+        for attempt in range(settings.MAX_SNS_ATTEMPTS):
             try:
                 await self._send(event)
                 return
@@ -39,16 +39,16 @@ class SNSPublisher:
                 logger.warning(
                     "SNS publish attempt %d/%d failed — event_type=%s: %s",
                     attempt + 1,
-                    _MAX_ATTEMPTS,
+                    settings.MAX_SNS_ATTEMPTS,
                     event.event_type.value,
                     exc,
                 )
-                if attempt < _MAX_ATTEMPTS - 1:
+                if attempt < settings.MAX_SNS_ATTEMPTS - 1:
                     await asyncio.sleep(2**attempt)  # 1s, 2s
 
         logger.error(
             "SNS publish gave up after %d attempts — event_type=%s user_id=%s",
-            _MAX_ATTEMPTS,
+            settings.MAX_SNS_ATTEMPTS,
             event.event_type.value,
             event.user_id,
         )

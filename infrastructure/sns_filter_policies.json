@@ -1,0 +1,11 @@
+{
+  "projections-queue": {
+    "event_type": ["budget.updated", "week.closed"]
+  },
+  "ai-analysis-queue": {
+    "event_type": ["ai.analysis.requested", "budget.updated"]
+  },
+  "notifications-queue": {
+    "event_type": ["goal.progress"]
+  }
+}

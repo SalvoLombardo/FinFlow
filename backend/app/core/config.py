@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     AWS_SQS_PROJECTIONS_URL: str = ""
     AWS_SQS_AI_ANALYSIS_URL: str = ""
     AWS_SQS_NOTIFICATIONS_URL: str = ""
+    MAX_SNS_ATTEMPTS: int = 3
 
     # Kafka
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"

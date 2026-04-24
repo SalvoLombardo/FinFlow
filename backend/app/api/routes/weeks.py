@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.events.schemas import EventType, FinFlowEvent
+from app.messaging.sns_publisher import sns_publisher
 from app.models.user import User
 from app.models.week import FinancialWeek
 from app.schemas.week import WeekCreate, WeekRead, WeekUpdate
@@ -74,5 +76,15 @@ async def update_week(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Week not found")
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(week, field, value)
-    # Phase 2: publish WEEK_CLOSED to SNS when closing_balance is set
+    if body.closing_balance is not None:
+        await sns_publisher.publish(
+            FinFlowEvent(
+                event_type=EventType.WEEK_CLOSED,
+                user_id=str(current_user.id),
+                payload={
+                    "week_id": str(week.id),
+                    "closing_balance": str(week.closing_balance),
+                },
+            )
+        )
     return week

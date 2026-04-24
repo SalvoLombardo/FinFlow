@@ -104,6 +104,26 @@ GET    /api/v1/dashboard/summary
 GET    /health
 ```
 
+## Event routing — SNS filter policies
+
+Each SQS queue subscribes to `finflow-events` with a filter policy on the `event_type` message attribute. Only matching event types are delivered to each queue. These policies are applied by Terraform in Phase 6; the reference file is [`infrastructure/sns_filter_policies.json`](infrastructure/sns_filter_policies.json).
+
+| Queue | Triggered by |
+|---|---|
+| `projections-queue` | `budget.updated`, `week.closed` |
+| `ai-analysis-queue` | `ai.analysis.requested`, `budget.updated` |
+| `notifications-queue` | `goal.progress` |
+
+**Events emitted by the API:**
+
+| Endpoint | Event published |
+|---|---|
+| `POST /transactions` | `budget.updated` |
+| `PUT /transactions/{id}` | `budget.updated` |
+| `PUT /weeks/{id}` (with `closing_balance`) | `week.closed` |
+
+In local mode (`AWS_SNS_TOPIC_ARN` empty) every write logs the event as structured JSON (`SNS_LOCAL event_type=...`) without contacting AWS.
+
 ## Architecture decisions
 
 **Celery on EC2 vs EventBridge Scheduler:** Celery workers operate on all users in batch, access the DB directly, and can run for several minutes. Lambda has a 15-minute timeout and cold start. A persistent worker is better suited for batch processing with granular retries. The EC2 `t2.micro` is Free Tier eligible.
@@ -133,8 +153,8 @@ Post-Free Tier strategy: shut down RDS at night (−60% hours → ~€6) or migr
 
 | # | Phase | Status |
 |---|---|---|
-| 1 | Scaffolding, data models, local Docker backend | In progress |
-| 2 | Async layer: SNS fan-out + 3 Lambda consumers | Not started |
+| 1 | Scaffolding, data models, local Docker backend | Completed ✓ |
+| 2 | Async layer: SNS fan-out + 3 Lambda consumers | Completed ✓ |
 | 3 | Kafka audit log + Celery scheduled tasks | Not started |
 | 4 | React frontend | Not started |
 | 5 | AI layer (dual-mode) | Not started |
