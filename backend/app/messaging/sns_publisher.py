@@ -22,6 +22,7 @@ class SNSPublisher:
     """
 
     async def publish(self, event: FinFlowEvent) -> None:
+        ########Section for loval enviroment########
         if not settings.AWS_SNS_TOPIC_ARN:
             logger.info(
                 "SNS_LOCAL event_type=%s user_id=%s body=%s",
@@ -30,10 +31,12 @@ class SNSPublisher:
                 event.model_dump_json(),
             )
             return
+        ########Section for loval enviroment########
 
+        
         for attempt in range(settings.MAX_SNS_ATTEMPTS):
             try:
-                await self._send(event)
+                await self._send(event) #Sending the event
                 return
             except Exception as exc:
                 logger.warning(

@@ -1,28 +1,11 @@
 import asyncio
 import json
-import logging
-import os
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-
-from pydantic import BaseModel
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# NullPool: avoids stale connections across Lambda invocations with different event loops.
-_engine = create_async_engine(os.environ["DATABASE_URL"], poolclass=NullPool)
-_Session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
-
-
-class _Event(BaseModel):
-    event_type: str
-    user_id: str
-    payload: dict
+from deps import Session, SQSEvent, logger
 
 
 def lambda_handler(event, context):
@@ -35,20 +18,20 @@ async def _handler(event: dict) -> dict:
         try:
             body = json.loads(record["body"])
             raw = json.loads(body["Message"])
-            await _process(_Event(**raw))
+            await _process(SQSEvent(**raw))
         except Exception as exc:
             logger.error("Failed %s: %s", record["messageId"], exc, exc_info=True)
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
     return {"batchItemFailures": batch_item_failures}
 
 
-async def _process(ev: _Event) -> None:
+async def _process(ev: SQSEvent) -> None:
     user_uuid = uuid.UUID(ev.user_id)
     today = date.today()
     week_start = today - timedelta(days=today.weekday())  # Monday
     week_end = week_start + timedelta(weeks=8)
 
-    async with _Session() as session:
+    async with Session() as session:
         result = await session.execute(
             text(
                 "SELECT id, week_start, opening_balance "

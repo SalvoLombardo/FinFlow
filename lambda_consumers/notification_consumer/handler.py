@@ -1,26 +1,16 @@
 import asyncio
 import json
-import logging
-import os
 from decimal import Decimal
-
+import os
 import aioboto3
-from pydantic import BaseModel
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+from deps import SQSEvent, logger
 
 NOTIFICATION_TOPIC_ARN = os.environ.get("AWS_NOTIFICATION_TOPIC_ARN", "")
 AWS_REGION = os.environ.get("AWS_REGION", "eu-west-1")
 
 # Module-level session reused across warm Lambda invocations.
 _session = aioboto3.Session()
-
-
-class _Event(BaseModel):
-    event_type: str
-    user_id: str
-    payload: dict
 
 
 def lambda_handler(event, context):
@@ -33,14 +23,14 @@ async def _handler(event: dict) -> dict:
         try:
             body = json.loads(record["body"])
             raw = json.loads(body["Message"])
-            await _process(_Event(**raw))
+            await _process(SQSEvent(**raw))
         except Exception as exc:
             logger.error("Failed %s: %s", record["messageId"], exc, exc_info=True)
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
     return {"batchItemFailures": batch_item_failures}
 
 
-async def _process(ev: _Event) -> None:
+async def _process(ev: SQSEvent) -> None:
     payload = ev.payload
     goal_name = payload.get("goal_name", "Goal")
     current_amount = Decimal(str(payload.get("current_amount", 0)))

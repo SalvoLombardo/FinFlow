@@ -1,25 +1,10 @@
 import asyncio
 import json
-import logging
 import os
 import uuid
-
-from pydantic import BaseModel
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-_engine = create_async_engine(os.environ["DATABASE_URL"], poolclass=NullPool)
-_Session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
-
-
-class _Event(BaseModel):
-    event_type: str
-    user_id: str
-    payload: dict
+from deps import Session, SQSEvent, logger
 
 
 def lambda_handler(event, context):
@@ -32,17 +17,17 @@ async def _handler(event: dict) -> dict:
         try:
             body = json.loads(record["body"])
             raw = json.loads(body["Message"])
-            await _process(_Event(**raw))
+            await _process(SQSEvent(**raw))
         except Exception as exc:
             logger.error("Failed %s: %s", record["messageId"], exc, exc_info=True)
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
     return {"batchItemFailures": batch_item_failures}
 
 
-async def _process(ev: _Event) -> None:
+async def _process(ev: SQSEvent) -> None:
     user_uuid = uuid.UUID(ev.user_id)
 
-    async with _Session() as session:
+    async with Session() as session:
         row = await session.execute(
             text(
                 "SELECT ai_enabled, ai_mode, ai_provider, ai_model "

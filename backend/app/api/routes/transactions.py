@@ -1,10 +1,12 @@
+import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.audit.kafka_producer import AuditEvent, audit_producer
 from app.core.database import get_db
 from app.events.schemas import EventType, FinFlowEvent
 from app.messaging.sns_publisher import sns_publisher
@@ -13,6 +15,10 @@ from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
 
 router = APIRouter()
+
+
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
 
 
 @router.get("/", response_model=list[TransactionRead])
@@ -36,6 +42,7 @@ async def list_transactions(
 
 @router.post("/", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
 async def create_transaction(
+    request: Request,
     body: TransactionCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -50,12 +57,25 @@ async def create_transaction(
             payload={"week_id": str(tx.week_id)},
         )
     )
+    asyncio.create_task(
+        audit_producer.send(
+            AuditEvent(
+                user_id=str(current_user.id),
+                action="transaction.created",
+                entity_type="transaction",
+                entity_id=str(tx.id),
+                after_state=TransactionRead.model_validate(tx).model_dump(mode="json"),
+                ip_address=_client_ip(request),
+            )
+        )
+    )
     return tx
 
 
 @router.put("/{transaction_id}", response_model=TransactionRead)
 async def update_transaction(
     transaction_id: uuid.UUID,
+    request: Request,
     body: TransactionUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -69,6 +89,7 @@ async def update_transaction(
     tx = result.scalar_one_or_none()
     if not tx:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    before = TransactionRead.model_validate(tx).model_dump(mode="json")
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(tx, field, value)
     await sns_publisher.publish(
@@ -78,12 +99,26 @@ async def update_transaction(
             payload={"week_id": str(tx.week_id)},
         )
     )
+    asyncio.create_task(
+        audit_producer.send(
+            AuditEvent(
+                user_id=str(current_user.id),
+                action="transaction.updated",
+                entity_type="transaction",
+                entity_id=str(tx.id),
+                before_state=before,
+                after_state=TransactionRead.model_validate(tx).model_dump(mode="json"),
+                ip_address=_client_ip(request),
+            )
+        )
+    )
     return tx
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_transaction(
     transaction_id: uuid.UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -96,4 +131,18 @@ async def delete_transaction(
     tx = result.scalar_one_or_none()
     if not tx:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    before = TransactionRead.model_validate(tx).model_dump(mode="json")
     await db.delete(tx)
+    asyncio.create_task(
+        audit_producer.send(
+            AuditEvent(
+                user_id=str(current_user.id),
+                action="transaction.deleted",
+                entity_type="transaction",
+                entity_id=str(transaction_id),
+                before_state=before,
+                after_state={"deleted": True},
+                ip_address=_client_ip(request),
+            )
+        )
+    )

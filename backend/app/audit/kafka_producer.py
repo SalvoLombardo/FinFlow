@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -9,10 +8,9 @@ import orjson
 from aiokafka import AIOKafkaProducer
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+from app.core.config import settings
 
-KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-KAFKA_AUDIT_TOPIC = os.environ.get("KAFKA_AUDIT_TOPIC", "finflow.audit")
+logger = logging.getLogger(__name__)
 
 _MAX_ATTEMPTS = 3
 
@@ -30,20 +28,23 @@ class AuditEvent(BaseModel):
 
 
 class KafkaAuditProducer:
-    """Publishes AuditEvents to Kafka.
+    """Publishes AuditEvents to Kafka from the FastAPI Lambda.
 
-    Creates a new producer connection per call — safe for both Lambda (ephemeral)
-    and Celery (long-running) contexts. Fire-and-forget: never raises.
+    Creates a new producer connection per call — safe for Lambda (ephemeral compute).
+    Callers should use asyncio.create_task(producer.send(...)) for true fire-and-forget:
+    retries happen in the background without adding latency to the HTTP response.
     """
 
     async def send(self, event: AuditEvent) -> None:
         for attempt in range(_MAX_ATTEMPTS):
             try:
-                producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
+                producer = AIOKafkaProducer(
+                    bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS
+                )
                 await producer.start()
                 try:
                     await producer.send_and_wait(
-                        KAFKA_AUDIT_TOPIC,
+                        settings.KAFKA_AUDIT_TOPIC,
                         value=orjson.dumps(event.model_dump(mode="json")),
                         key=event.user_id.encode(),
                     )

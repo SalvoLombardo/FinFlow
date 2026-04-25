@@ -114,6 +114,7 @@ async def test_retries_on_transient_failure_and_succeeds(publisher):
          patch("asyncio.sleep", new_callable=AsyncMock):
         mock_cfg.AWS_SNS_TOPIC_ARN = FAKE_TOPIC_ARN
         mock_cfg.AWS_REGION = "eu-west-1"
+        mock_cfg.MAX_SNS_ATTEMPTS = 3
         await publisher.publish(_make_event())
 
     assert client.publish.await_count == 2
@@ -128,6 +129,7 @@ async def test_gives_up_after_max_attempts_without_raising(publisher):
          patch("asyncio.sleep", new_callable=AsyncMock):
         mock_cfg.AWS_SNS_TOPIC_ARN = FAKE_TOPIC_ARN
         mock_cfg.AWS_REGION = "eu-west-1"
+        mock_cfg.MAX_SNS_ATTEMPTS = 3
         await publisher.publish(_make_event())  # must not raise
 
     assert client.publish.await_count == 3
@@ -142,6 +144,7 @@ async def test_error_does_not_propagate_to_caller(publisher):
          patch("asyncio.sleep", new_callable=AsyncMock):
         mock_cfg.AWS_SNS_TOPIC_ARN = FAKE_TOPIC_ARN
         mock_cfg.AWS_REGION = "eu-west-1"
+        mock_cfg.MAX_SNS_ATTEMPTS = 3
         try:
             await publisher.publish(_make_event())
         except Exception:
