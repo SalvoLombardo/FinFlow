@@ -38,9 +38,7 @@ class KafkaAuditProducer:
     async def send(self, event: AuditEvent) -> None:
         for attempt in range(_MAX_ATTEMPTS):
             try:
-                producer = AIOKafkaProducer(
-                    bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS
-                )
+                producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
                 await producer.start()
                 try:
                     await producer.send_and_wait(

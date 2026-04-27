@@ -21,7 +21,7 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-@router.get("/", response_model=list[WeekRead])
+@router.get("", response_model=list[WeekRead])
 async def list_weeks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -34,7 +34,7 @@ async def list_weeks(
     return result.scalars().all()
 
 
-@router.post("/", response_model=WeekRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=WeekRead, status_code=status.HTTP_201_CREATED)
 async def create_week(
     body: WeekCreate,
     current_user: User = Depends(get_current_user),

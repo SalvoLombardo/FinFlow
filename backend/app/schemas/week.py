@@ -17,8 +17,8 @@ class WeekRead(BaseModel):
     user_id: uuid.UUID
     week_start: date
     week_end: date
-    opening_balance: Decimal
-    closing_balance: Decimal | None
+    opening_balance: float
+    closing_balance: float | None
     notes: str | None
     created_at: datetime
 

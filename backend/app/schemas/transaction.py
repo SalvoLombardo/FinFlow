@@ -24,7 +24,7 @@ class TransactionRead(BaseModel):
     user_id: uuid.UUID
     week_id: uuid.UUID
     name: str
-    amount: Decimal
+    amount: float
     type: TransactionType
     category: str | None
     is_recurring: bool

@@ -13,7 +13,7 @@ from app.schemas.goal import GoalCreate, GoalRead, GoalUpdate
 router = APIRouter()
 
 
-@router.get("/", response_model=list[GoalRead])
+@router.get("", response_model=list[GoalRead])
 async def list_goals(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -24,7 +24,7 @@ async def list_goals(
     return result.scalars().all()
 
 
-@router.post("/", response_model=GoalRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=GoalRead, status_code=status.HTTP_201_CREATED)
 async def create_goal(
     body: GoalCreate,
     current_user: User = Depends(get_current_user),

@@ -18,9 +18,9 @@ class GoalRead(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
     name: str
-    target_amount: Decimal
+    target_amount: float
     target_date: date
-    current_amount: Decimal
+    current_amount: float
     status: GoalStatus
     created_at: datetime
 

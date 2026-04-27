@@ -35,7 +35,24 @@ async def calculate_projection(
     week_map: dict[date, FinancialWeek] = {w.week_start: w for w in weeks}
 
     first_week = week_map.get(from_week)
-    running_balance: Decimal = first_week.opening_balance if first_week else Decimal("0")
+    if first_week:
+        running_balance: Decimal = first_week.opening_balance
+    else:
+        # No week starts exactly at from_week: carry forward from the last closed week
+        last_result = await db.execute(
+            select(FinancialWeek)
+            .where(
+                FinancialWeek.user_id == user_id,
+                FinancialWeek.week_start < from_week,
+            )
+            .order_by(FinancialWeek.week_start.desc())
+            .limit(1)
+        )
+        last = last_result.scalar_one_or_none()
+        if last is not None:
+            running_balance = last.closing_balance if last.closing_balance is not None else last.opening_balance
+        else:
+            running_balance = Decimal("0")
 
     projections: list[WeekProjection] = []
     current = from_week

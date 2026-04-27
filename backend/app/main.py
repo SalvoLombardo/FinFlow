@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import auth, dashboard, goals, settings as settings_routes, transactions, weeks
 
-app = FastAPI(title="FinFlow API", version="1.0.0")
+app = FastAPI(title="FinFlow API", version="1.0.0", redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,

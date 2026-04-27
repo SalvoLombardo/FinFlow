@@ -21,7 +21,7 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-@router.get("/", response_model=list[TransactionRead])
+@router.get("", response_model=list[TransactionRead])
 async def list_transactions(
     week_id: uuid.UUID | None = Query(default=None),
     type: TransactionType | None = Query(default=None),
@@ -40,7 +40,7 @@ async def list_transactions(
     return result.scalars().all()
 
 
-@router.post("/", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
 async def create_transaction(
     request: Request,
     body: TransactionCreate,
