@@ -1,4 +1,9 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"  # host port 6380 to avoid conflict with main compose redis
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.1
     environment:
@@ -32,28 +37,37 @@ services:
     command: celery -A celery_app.config worker --loglevel=info
     env_file:
       - .env
+    environment:
+      # Override broker URLs to use service name inside Docker network
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
     volumes:
       - ./workers:/app
     depends_on:
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
 
   celery_beat:
     build: ./workers
     command: celery -A celery_app.config beat --loglevel=info --scheduler redbeat.RedBeatScheduler
     env_file:
       - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
     volumes:
       - ./workers:/app
     depends_on:
-      kafka:
-        condition: service_healthy
+      - redis
+      - kafka
 
   kafka_audit_consumer:
     build: ./workers
     command: python -m kafka_audit.consumer
     env_file:
       - .env
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
     volumes:
       - ./workers:/app
       - ./audit_archive:/app/audit_archive

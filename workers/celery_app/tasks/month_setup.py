@@ -1,9 +1,154 @@
-from celery_app.config import app
+import asyncio
+import calendar
+import datetime as _dt
+import logging
+import uuid
+from decimal import Decimal
 
-# Phase 3: full implementation
+from celery_app.config import app
+from celery_app.db import FinancialWeek, Transaction, User, get_session
+from kafka_audit.producer import AuditEvent, KafkaAuditProducer
+
+logger = logging.getLogger(__name__)
+
+_audit_producer = KafkaAuditProducer()
+
+
+def _today() -> _dt.date:
+    return _dt.date.today()
+
+
+def _next_month(today: _dt.date) -> tuple[int, int]:
+    if today.month == 12:
+        return today.year + 1, 1
+    return today.year, today.month + 1
+
+
+def _week_ranges(year: int, month: int) -> list[tuple[_dt.date, _dt.date]]:
+    """Return (week_start, week_end) pairs for all Mon-Sun weeks starting in month."""
+    first = _dt.date(year, month, 1)
+    last = _dt.date(year, month, calendar.monthrange(year, month)[1])
+    days_to_monday = (7 - first.weekday()) % 7
+    monday = first + _dt.timedelta(days=days_to_monday)
+    ranges: list[tuple[_dt.date, _dt.date]] = []
+    while monday <= last:
+        ranges.append((monday, monday + _dt.timedelta(days=6)))
+        monday += _dt.timedelta(weeks=1)
+    return ranges
+
+
+def _send_audit(event: AuditEvent) -> None:
+    try:
+        asyncio.run(_audit_producer.send(event))
+    except Exception as exc:
+        logger.warning("Kafka audit skipped — %s", exc)
 
 
 @app.task(bind=True, max_retries=3)
 def create_next_month_weeks(self):
-    """Create financial_weeks for next month for all active users; copy recurring transactions; log to Kafka."""
-    raise NotImplementedError("Implement in Phase 3")
+    """Create financial_weeks for next month for all users; copy recurring transactions; log to Kafka."""
+    today = _today()
+    year, month = _next_month(today)
+    ranges = _week_ranges(year, month)
+
+    if not ranges:
+        logger.info("month_setup: no weeks to create for %d-%02d", year, month)
+        return {"created": 0, "month": f"{year}-{month:02d}"}
+
+    created = 0
+    try:
+        with get_session() as session:
+            users = session.query(User).all()
+
+            for user in users:
+                last_week = (
+                    session.query(FinancialWeek)
+                    .filter(FinancialWeek.user_id == user.id)
+                    .order_by(FinancialWeek.week_start.desc())
+                    .first()
+                )
+
+                if last_week:
+                    carry = (
+                        last_week.closing_balance
+                        if last_week.closing_balance is not None
+                        else last_week.opening_balance
+                    )
+                else:
+                    carry = Decimal("0")
+
+                recurring = (
+                    session.query(Transaction)
+                    .filter(
+                        Transaction.week_id == last_week.id,
+                        Transaction.is_recurring.is_(True),
+                    )
+                    .all()
+                    if last_week
+                    else []
+                )
+
+                for idx, (week_start, week_end) in enumerate(ranges):
+                    exists = (
+                        session.query(FinancialWeek)
+                        .filter(
+                            FinancialWeek.user_id == user.id,
+                            FinancialWeek.week_start == week_start,
+                        )
+                        .first()
+                    )
+                    if exists:
+                        continue
+
+                    opening = carry if idx == 0 else Decimal("0")
+                    new_week = FinancialWeek(
+                        id=uuid.uuid4(),
+                        user_id=user.id,
+                        week_start=week_start,
+                        week_end=week_end,
+                        opening_balance=opening,
+                    )
+                    session.add(new_week)
+                    session.flush()
+
+                    if idx == 0:
+                        for txn in recurring:
+                            session.add(
+                                Transaction(
+                                    id=uuid.uuid4(),
+                                    user_id=user.id,
+                                    week_id=new_week.id,
+                                    name=txn.name,
+                                    amount=txn.amount,
+                                    type=txn.type,
+                                    category=txn.category,
+                                    is_recurring=True,
+                                    recurrence_rule=txn.recurrence_rule,
+                                    transaction_date=week_start,
+                                    notes=txn.notes,
+                                )
+                            )
+
+                    created += 1
+                    _send_audit(
+                        AuditEvent(
+                            user_id=str(user.id),
+                            action="week.created",
+                            entity_type="financial_week",
+                            entity_id=str(new_week.id),
+                            after_state={
+                                "week_start": week_start.isoformat(),
+                                "week_end": week_end.isoformat(),
+                                "opening_balance": str(opening),
+                            },
+                        )
+                    )
+
+            session.commit()
+
+    except Exception as exc:
+        logger.error("month_setup failed: %s", exc)
+        raise self.retry(exc=exc, countdown=60)
+
+    logger.info("month_setup: created %d weeks for %d-%02d", created, year, month)
+    return {"created": created, "month": f"{year}-{month:02d}"}

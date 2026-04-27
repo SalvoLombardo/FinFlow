@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  /* FinFlow color palette */
+  --color-bg:      #0F1117;
+  --color-surface: #1A1D27;
+  --color-primary: #6366F1;
+  --color-income:  #22C55E;
+  --color-expense: #EF4444;
+  --color-text:    #F1F5F9;
+  --color-muted:   #64748B;
+
+  /* Typography */
+  --font-ui:   'DM Sans', system-ui, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+}
+
+/* Base resets */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  background-color: #0F1117;
+  color: #F1F5F9;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numeric values and currency use DM Mono */
+.tabular-nums {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
