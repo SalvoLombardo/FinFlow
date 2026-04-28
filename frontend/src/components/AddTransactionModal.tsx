@@ -11,6 +11,7 @@ interface TransactionCreate {
   transaction_date?: string
   is_recurring: boolean
   recurrence_rule?: string
+  recurrence_end_date?: string
 }
 
 interface Transaction {
@@ -44,9 +45,11 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
   const [type, setType]           = useState<'income' | 'expense'>('expense')
   const [category, setCategory]   = useState('')
   const [date, setDate]           = useState('')
-  const [recurring, setRecurring]         = useState(false)
-  const [recurrenceRule, setRecurrenceRule] = useState<string>('M:1')
-  const [error, setError]                 = useState<string | null>(null)
+  const [recurring, setRecurring]               = useState(false)
+  const [recurrenceRule, setRecurrenceRule]     = useState<string>('M:1')
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState<string>('')
+  const [installments, setInstallments]         = useState<string>('')
+  const [error, setError]                       = useState<string | null>(null)
 
   // Pre-fill date when modal opens (supports projected-week cards)
   useEffect(() => {
@@ -56,7 +59,35 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
   const reset = () => {
     setName(''); setAmount(''); setType('expense')
     setCategory(''); setDate(''); setRecurring(false)
-    setRecurrenceRule('M:1'); setError(null)
+    setRecurrenceRule('M:1'); setRecurrenceEndDate(''); setInstallments('')
+    setError(null)
+  }
+
+  // Given a start date, recurrence rule and number of occurrences, returns the end date.
+  const calcEndDate = (start: string, rule: string, count: number): string => {
+    if (!start || count < 2) return ''
+    const [unit, intervalStr] = rule.split(':')
+    const interval = parseInt(intervalStr, 10) || 1
+    const d = new Date(start + 'T12:00:00')
+    if (unit === 'W') d.setDate(d.getDate() + (count - 1) * interval * 7)
+    else if (unit === 'M') d.setMonth(d.getMonth() + (count - 1) * interval)
+    else if (unit === 'Y') d.setFullYear(d.getFullYear() + (count - 1) * interval)
+    return d.toISOString().split('T')[0]
+  }
+
+  const handleInstallmentsChange = (val: string) => {
+    setInstallments(val)
+    const n = parseInt(val, 10)
+    if (!isNaN(n) && n >= 2) {
+      setRecurrenceEndDate(calcEndDate(date, recurrenceRule, n))
+    } else {
+      setRecurrenceEndDate('')
+    }
+  }
+
+  const handleEndDateChange = (val: string) => {
+    setRecurrenceEndDate(val)
+    setInstallments('') // manual date overrides installments helper
   }
 
   const handleOpenChange = (next: boolean) => {
@@ -123,6 +154,7 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
       transaction_date: date || undefined,
       is_recurring: recurring,
       recurrence_rule: recurring ? recurrenceRule : undefined,
+      recurrence_end_date: recurring && recurrenceEndDate ? recurrenceEndDate : undefined,
     })
   }
 
@@ -210,21 +242,64 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
             </label>
 
             {recurring && (
-              <div>
-                <label className="text-xs text-muted block mb-1">Frequenza</label>
-                <select
-                  value={recurrenceRule}
-                  onChange={(e) => setRecurrenceRule(e.target.value)}
-                  className={`${FIELD} cursor-pointer`}
-                >
-                  <option value="W:1">Ogni settimana</option>
-                  <option value="W:2">Ogni 2 settimane</option>
-                  <option value="M:1">Ogni mese</option>
-                  <option value="M:2">Ogni 2 mesi</option>
-                  <option value="M:3">Ogni 3 mesi (trimestrale)</option>
-                  <option value="M:6">Ogni 6 mesi (semestrale)</option>
-                  <option value="Y:1">Ogni anno</option>
-                </select>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-muted block mb-1">Frequenza</label>
+                  <select
+                    value={recurrenceRule}
+                    onChange={(e) => {
+                      setRecurrenceRule(e.target.value)
+                      // Recalculate end date if installments are set
+                      const n = parseInt(installments, 10)
+                      if (!isNaN(n) && n >= 2) {
+                        setRecurrenceEndDate(calcEndDate(date, e.target.value, n))
+                      }
+                    }}
+                    className={`${FIELD} cursor-pointer`}
+                  >
+                    <option value="W:1">Ogni settimana</option>
+                    <option value="W:2">Ogni 2 settimane</option>
+                    <option value="M:1">Ogni mese</option>
+                    <option value="M:2">Ogni 2 mesi</option>
+                    <option value="M:3">Ogni 3 mesi (trimestrale)</option>
+                    <option value="M:6">Ogni 6 mesi (semestrale)</option>
+                    <option value="Y:1">Ogni anno</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted block mb-1">Fine ricorrenza (opz.)</label>
+                    <input
+                      type="date"
+                      value={recurrenceEndDate}
+                      onChange={(e) => handleEndDateChange(e.target.value)}
+                      className={`${FIELD} [color-scheme:dark]`}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted block mb-1">oppure quante rate?</label>
+                    <input
+                      type="number"
+                      min="2"
+                      step="1"
+                      value={installments}
+                      onChange={(e) => handleInstallmentsChange(e.target.value)}
+                      placeholder="es. 24"
+                      className={`${FIELD} tabular-nums`}
+                    />
+                  </div>
+                </div>
+                {recurrenceEndDate && (
+                  <p className="text-xs text-muted">
+                    Ultima occorrenza entro la settimana del{' '}
+                    <span className="text-text tabular-nums">
+                      {new Date(recurrenceEndDate + 'T12:00:00').toLocaleDateString('it-IT', {
+                        day: 'numeric', month: 'long', year: 'numeric',
+                      })}
+                    </span>
+                  </p>
+                )}
               </div>
             )}
 
