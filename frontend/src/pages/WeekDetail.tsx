@@ -6,15 +6,13 @@ import { it } from 'date-fns/locale'
 import { api } from '../api/client'
 import { AddTransactionModal } from '../components/AddTransactionModal'
 
-const FIELD =
-  'w-full bg-bg border border-white/10 rounded-xl px-3 py-2 text-sm text-text placeholder-muted focus:outline-none focus:border-primary transition-colors'
-
 interface Week {
   id: string
   week_start: string
   week_end: string
   opening_balance: number
   closing_balance: number | null
+  notes: string | null
 }
 
 interface Transaction {
@@ -35,9 +33,7 @@ function fmt(n: number) {
 export function WeekDetail() {
   const { weekId } = useParams<{ weekId: string }>()
   const qc = useQueryClient()
-  const [modalOpen, setModalOpen]         = useState(false)
-  const [closingInput, setClosingInput]   = useState('')
-  const [closeError, setCloseError]       = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const { data: week } = useQuery<Week>({
     queryKey: ['week', weekId],
@@ -71,20 +67,8 @@ export function WeekDetail() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['transactions', weekId] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-  })
-
-  const closeMutation = useMutation({
-    mutationFn: (closing_balance: number) =>
-      api.put(`/weeks/${weekId}`, { closing_balance }).then((r) => r.data),
-    onSuccess: (updated: Week) => {
-      qc.setQueryData(['week', weekId], updated)
       qc.invalidateQueries({ queryKey: ['weeks'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      setClosingInput('')
-      setCloseError(null)
     },
-    onError: () => setCloseError('Errore durante la chiusura. Riprova.'),
   })
 
   const handleDelete = (id: string) => {
@@ -93,19 +77,10 @@ export function WeekDetail() {
     }
   }
 
-  const handleCloseWeek = (e: React.FormEvent) => {
-    e.preventDefault()
-    const val = parseFloat(closingInput)
-    if (isNaN(val)) { setCloseError('Inserisci un saldo di chiusura valido.'); return }
-    setCloseError(null)
-    closeMutation.mutate(val)
-  }
-
   const incomes  = transactions.filter((t) => t.type === 'income')
   const expenses = transactions.filter((t) => t.type === 'expense')
   const totalIn  = incomes.reduce((s, t) => s + t.amount, 0)
   const totalOut = expenses.reduce((s, t) => s + t.amount, 0)
-  const calculatedClosing = week ? week.opening_balance + totalIn - totalOut : 0
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto">
@@ -129,6 +104,11 @@ export function WeekDetail() {
               color={totalIn - totalOut >= 0 ? 'text-income' : 'text-expense'}
             />
           </div>
+          {week.closing_balance !== null && (
+            <p className="text-muted text-xs mt-2 tabular-nums">
+              Saldo chiusura calcolato: <span className="text-text font-medium">{fmt(week.closing_balance)}</span>
+            </p>
+          )}
         </div>
       )}
 
@@ -183,45 +163,8 @@ export function WeekDetail() {
         </div>
       )}
 
-      {/* Close week panel */}
-      {week && week.closing_balance === null && (
-        <div className="mt-6 bg-surface border border-white/5 rounded-2xl p-5">
-          <p className="text-sm font-medium mb-1">Chiudi settimana</p>
-          <p className="text-muted text-xs mb-4">
-            Saldo calcolato: <span className="tabular-nums text-text">{fmt(calculatedClosing)}</span>
-            {' '}(apertura {fmt(week.opening_balance)} {totalIn > 0 ? `+${fmt(totalIn)}` : ''}{totalOut > 0 ? ` −${fmt(totalOut)}` : ''})
-          </p>
-          <form onSubmit={handleCloseWeek} className="flex gap-2">
-            <input
-              type="number"
-              step="0.01"
-              value={closingInput}
-              onChange={(e) => setClosingInput(e.target.value)}
-              placeholder={calculatedClosing.toFixed(2)}
-              className={`${FIELD} tabular-nums`}
-            />
-            <button
-              type="submit"
-              disabled={closeMutation.isPending}
-              className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors whitespace-nowrap"
-            >
-              {closeMutation.isPending ? 'Salvo…' : 'Chiudi'}
-            </button>
-          </form>
-          {closeError && <p className="text-expense text-xs mt-2">{closeError}</p>}
-        </div>
-      )}
-
-      {week && week.closing_balance !== null && (
-        <div className="mt-6 flex items-center gap-2 text-sm text-muted">
-          <span className="w-2 h-2 rounded-full bg-income inline-block" />
-          Settimana chiusa — saldo finale:{' '}
-          <span className="tabular-nums text-text font-medium">{fmt(week.closing_balance)}</span>
-        </div>
-      )}
-
       {/* FAB */}
-      {weekId && week?.closing_balance === null && (
+      {weekId && (
         <>
           <button
             onClick={() => setModalOpen(true)}

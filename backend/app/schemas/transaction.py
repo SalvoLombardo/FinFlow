@@ -8,13 +8,13 @@ from app.models.transaction import TransactionType
 
 
 class TransactionCreate(BaseModel):
-    week_id: uuid.UUID
     name: str
     amount: Decimal
     type: TransactionType
     category: str | None = None
     is_recurring: bool = False
     recurrence_rule: str | None = None
+    # The backend derives the week from this date; defaults to today if omitted.
     transaction_date: date | None = None
     notes: str | None = None
 

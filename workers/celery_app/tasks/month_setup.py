@@ -6,7 +6,7 @@ import uuid
 from decimal import Decimal
 
 from celery_app.config import app
-from celery_app.db import FinancialWeek, Transaction, User, get_session
+from celery_app.db import FinancialWeek, Transaction, TransactionType, User, UserFinancialSettings, get_session
 from kafka_audit.producer import AuditEvent, KafkaAuditProducer
 
 logger = logging.getLogger(__name__)
@@ -69,25 +69,31 @@ def create_next_month_weeks(self):
                 )
 
                 if last_week:
-                    carry = (
-                        last_week.closing_balance
-                        if last_week.closing_balance is not None
+                    # Compute closing of last week from actual transactions.
+                    txs = session.query(Transaction).filter(Transaction.week_id == last_week.id).all()
+                    net = sum(
+                        (t.amount if t.type == TransactionType.income else -t.amount for t in txs),
+                        Decimal("0"),
+                    )
+                    carry = (last_week.opening_balance + net) if txs else (
+                        last_week.closing_balance if last_week.closing_balance is not None
                         else last_week.opening_balance
                     )
                 else:
-                    carry = Decimal("0")
+                    ufs = session.query(UserFinancialSettings).filter(
+                        UserFinancialSettings.user_id == user.id
+                    ).first()
+                    carry = ufs.initial_balance if ufs else Decimal("0")
 
                 recurring = (
                     session.query(Transaction)
-                    .filter(
-                        Transaction.week_id == last_week.id,
-                        Transaction.is_recurring.is_(True),
-                    )
+                    .filter(Transaction.week_id == last_week.id, Transaction.is_recurring.is_(True))
                     .all()
                     if last_week
                     else []
                 )
 
+                running_carry = carry
                 for idx, (week_start, week_end) in enumerate(ranges):
                     exists = (
                         session.query(FinancialWeek)
@@ -98,19 +104,24 @@ def create_next_month_weeks(self):
                         .first()
                     )
                     if exists:
+                        # Propagate carry even for existing weeks.
+                        running_carry = (
+                            exists.closing_balance if exists.closing_balance is not None
+                            else exists.opening_balance
+                        )
                         continue
 
-                    opening = carry if idx == 0 else Decimal("0")
                     new_week = FinancialWeek(
                         id=uuid.uuid4(),
                         user_id=user.id,
                         week_start=week_start,
                         week_end=week_end,
-                        opening_balance=opening,
+                        opening_balance=running_carry,
                     )
                     session.add(new_week)
                     session.flush()
 
+                    # Copy recurring transactions only into the first new week.
                     if idx == 0:
                         for txn in recurring:
                             session.add(
@@ -128,6 +139,13 @@ def create_next_month_weeks(self):
                                     notes=txn.notes,
                                 )
                             )
+                        # Advance carry by the net of recurring transactions.
+                        rec_net = sum(
+                            (t.amount if t.type == TransactionType.income else -t.amount for t in recurring),
+                            Decimal("0"),
+                        )
+                        running_carry = running_carry + rec_net
+                    # Weeks 2+ have no transactions yet; carry is unchanged.
 
                     created += 1
                     _send_audit(
@@ -139,7 +157,7 @@ def create_next_month_weeks(self):
                             after_state={
                                 "week_start": week_start.isoformat(),
                                 "week_end": week_end.isoformat(),
-                                "opening_balance": str(opening),
+                                "opening_balance": str(new_week.opening_balance),
                             },
                         )
                     )

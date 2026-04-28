@@ -3,11 +3,7 @@ from datetime import date
 
 from pydantic import BaseModel
 
-
-class WeekProjection(BaseModel):
-    week_id: uuid.UUID | None
-    week_start: date
-    projected_balance: float
+from app.schemas.week import WeekSummary
 
 
 class GoalDelta(BaseModel):
@@ -16,11 +12,13 @@ class GoalDelta(BaseModel):
     target_amount: float
     current_amount: float
     remaining: float
+    progress_pct: float
     target_date: date
+    goal_type: str
     status: str
 
 
 class DashboardSummary(BaseModel):
     current_balance: float
-    projection: list[WeekProjection]
+    projection: list[WeekSummary]
     goals: list[GoalDelta]

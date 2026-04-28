@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from app.messaging.sns_publisher import sns_publisher
 from app.models.transaction import Transaction, TransactionType
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
+from app.services.weeks import get_or_create_week
 
 router = APIRouter()
 
@@ -47,14 +49,20 @@ async def create_transaction(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    tx = Transaction(**body.model_dump(), user_id=current_user.id)
+    tx_date = body.transaction_date or date.today()
+    week = await get_or_create_week(current_user.id, tx_date, db)
+
+    data = body.model_dump()
+    data["transaction_date"] = tx_date
+    tx = Transaction(**data, user_id=current_user.id, week_id=week.id)
     db.add(tx)
     await db.flush()
+
     await sns_publisher.publish(
         FinFlowEvent(
             event_type=EventType.BUDGET_UPDATED,
             user_id=str(current_user.id),
-            payload={"week_id": str(tx.week_id)},
+            payload={"week_id": str(week.id)},
         )
     )
     asyncio.create_task(
@@ -90,8 +98,16 @@ async def update_transaction(
     if not tx:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     before = TransactionRead.model_validate(tx).model_dump(mode="json")
-    for field, value in body.model_dump(exclude_none=True).items():
+
+    # If the date changes, move the transaction to the correct week.
+    updates = body.model_dump(exclude_none=True)
+    if "transaction_date" in updates:
+        week = await get_or_create_week(current_user.id, updates["transaction_date"], db)
+        tx.week_id = week.id
+
+    for field, value in updates.items():
         setattr(tx, field, value)
+
     await sns_publisher.publish(
         FinFlowEvent(
             event_type=EventType.BUDGET_UPDATED,

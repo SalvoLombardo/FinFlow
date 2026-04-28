@@ -1,10 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 
 interface TransactionCreate {
-  week_id: string
   name: string
   amount: number
   type: 'income' | 'expense'
@@ -25,7 +24,10 @@ interface Transaction {
 }
 
 interface Props {
-  weekId: string
+  /** Provided by WeekDetail for optimistic cache updates keyed by week. */
+  weekId?: string
+  /** Pre-fills the date field (used when opening from a projected week card). */
+  defaultDate?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -33,16 +35,21 @@ interface Props {
 const FIELD =
   'w-full bg-bg border border-white/10 rounded-xl px-3 py-2 text-sm text-text placeholder-muted focus:outline-none focus:border-primary transition-colors'
 
-export function AddTransactionModal({ weekId, open, onOpenChange }: Props) {
+export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }: Props) {
   const qc = useQueryClient()
 
-  const [name, setName]         = useState('')
-  const [amount, setAmount]     = useState('')
-  const [type, setType]         = useState<'income' | 'expense'>('expense')
-  const [category, setCategory] = useState('')
-  const [date, setDate]         = useState('')
+  const [name, setName]           = useState('')
+  const [amount, setAmount]       = useState('')
+  const [type, setType]           = useState<'income' | 'expense'>('expense')
+  const [category, setCategory]   = useState('')
+  const [date, setDate]           = useState('')
   const [recurring, setRecurring] = useState(false)
-  const [error, setError]       = useState<string | null>(null)
+  const [error, setError]         = useState<string | null>(null)
+
+  // Pre-fill date when modal opens (supports projected-week cards)
+  useEffect(() => {
+    if (open) setDate(defaultDate ?? '')
+  }, [open, defaultDate])
 
   const reset = () => {
     setName(''); setAmount(''); setType('expense')
@@ -59,13 +66,14 @@ export function AddTransactionModal({ weekId, open, onOpenChange }: Props) {
       api.post('/transactions', data).then((r) => r.data),
 
     onMutate: async (newTx) => {
+      if (!weekId) return {}
       await qc.cancelQueries({ queryKey: ['transactions', weekId] })
       const previous = qc.getQueryData<Transaction[]>(['transactions', weekId])
       qc.setQueryData(['transactions', weekId], (old: Transaction[] = []) => [
         ...old,
         {
           id: `optimistic-${Date.now()}`,
-          week_id: newTx.week_id,
+          week_id: weekId,
           name: newTx.name,
           amount: newTx.amount,
           type: newTx.type,
@@ -78,15 +86,19 @@ export function AddTransactionModal({ weekId, open, onOpenChange }: Props) {
     },
 
     onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) {
+      if (weekId && ctx?.previous) {
         qc.setQueryData(['transactions', weekId], ctx.previous)
       }
       setError('Errore durante il salvataggio. Riprova.')
     },
 
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['transactions', weekId] })
+      if (weekId) {
+        qc.invalidateQueries({ queryKey: ['transactions', weekId] })
+      }
       qc.invalidateQueries({ queryKey: ['dashboard'] })
+      // Always refresh weeks so projected cards update after a transaction is created
+      qc.invalidateQueries({ queryKey: ['weeks'] })
     },
 
     onSuccess: () => handleOpenChange(false),
@@ -101,7 +113,6 @@ export function AddTransactionModal({ weekId, open, onOpenChange }: Props) {
     }
     setError(null)
     mutation.mutate({
-      week_id: weekId,
       name: name.trim(),
       amount: parsed,
       type,

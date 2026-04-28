@@ -3,6 +3,7 @@ import json
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+
 from sqlalchemy import text
 
 from deps import Session, SQSEvent, logger
@@ -28,11 +29,12 @@ async def _handler(event: dict) -> dict:
 async def _process(ev: SQSEvent) -> None:
     user_uuid = uuid.UUID(ev.user_id)
     today = date.today()
-    week_start = today - timedelta(days=today.weekday())  # Monday
-    week_end = week_start + timedelta(weeks=8)
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(weeks=7)
 
     async with Session() as session:
-        result = await session.execute(
+        # Recompute closing_balance for all weeks in the 8-week window.
+        weeks_result = await session.execute(
             text(
                 "SELECT id, week_start, opening_balance "
                 "FROM financial_weeks "
@@ -43,11 +45,7 @@ async def _process(ev: SQSEvent) -> None:
             ),
             {"uid": user_uuid, "ws": week_start, "we": week_end},
         )
-        weeks = result.mappings().all()
-
-        if not weeks:
-            logger.info("No weeks found for user %s in range", ev.user_id)
-            return
+        weeks = weeks_result.mappings().all()
 
         for week in weeks:
             txs = await session.execute(
@@ -65,22 +63,56 @@ async def _process(ev: SQSEvent) -> None:
                 {"cb": closing, "wid": week["id"]},
             )
 
-        # Mark goals as achieved when current_amount reaches target_amount.
+        # Derive current balance (closing of current week or its opening if no transactions).
+        current_week = next((w for w in weeks if w["week_start"] == week_start), None)
+        if current_week:
+            txs = await session.execute(
+                text("SELECT amount, type FROM transactions WHERE week_id = :wid"),
+                {"wid": current_week["id"]},
+            )
+            net = Decimal("0")
+            for tx in txs.mappings().all():
+                amount = Decimal(str(tx["amount"]))
+                net += amount if tx["type"] == "income" else -amount
+            current_balance = Decimal(str(current_week["opening_balance"])) + net
+        else:
+            # Fallback: use initial_balance from user_financial_settings.
+            row = await session.execute(
+                text("SELECT initial_balance FROM user_financial_settings WHERE user_id = :uid"),
+                {"uid": user_uuid},
+            )
+            rec = row.mappings().one_or_none()
+            current_balance = Decimal(str(rec["initial_balance"])) if rec else Decimal("0")
+
+        # Update goals based on goal_type.
         goals = await session.execute(
             text(
-                "SELECT id, target_amount, current_amount "
+                "SELECT id, target_amount, goal_type, baseline_balance "
                 "FROM goals "
                 "WHERE user_id = :uid AND status = 'active'"
             ),
             {"uid": user_uuid},
         )
         for goal in goals.mappings().all():
-            if Decimal(str(goal["current_amount"])) >= Decimal(str(goal["target_amount"])):
+            goal_type = goal["goal_type"]
+            target = Decimal(str(goal["target_amount"]))
+
+            if goal_type == "liquidity":
+                current_amount = current_balance
+            else:
+                baseline = Decimal(str(goal["baseline_balance"])) if goal["baseline_balance"] else Decimal("0")
+                current_amount = max(current_balance - baseline, Decimal("0"))
+
+            await session.execute(
+                text("UPDATE goals SET current_amount = :ca WHERE id = :gid"),
+                {"ca": current_amount, "gid": goal["id"]},
+            )
+            if current_amount >= target:
                 await session.execute(
                     text("UPDATE goals SET status = 'achieved' WHERE id = :gid"),
                     {"gid": goal["id"]},
                 )
-                logger.info("Goal %s marked as achieved for user %s", goal["id"], ev.user_id)
+                logger.info("Goal %s achieved for user %s", goal["id"], ev.user_id)
 
         await session.commit()
 

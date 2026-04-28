@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, getISOWeek } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { api } from '../api/client'
 import { RangeSelector } from '../components/analytics/RangeSelector'
@@ -11,14 +11,19 @@ import { BalanceTrendChart } from '../components/analytics/BalanceTrendChart'
 import type { BalanceData } from '../components/analytics/BalanceTrendChart'
 import { CategoryDonutChart } from '../components/analytics/CategoryDonutChart'
 import type { CategoryData } from '../components/analytics/CategoryDonutChart'
-import { CreateWeekModal } from '../components/CreateWeekModal'
+import { AddTransactionModal } from '../components/AddTransactionModal'
 
 interface Week {
-  id: string
+  week_id: string | null
   week_start: string
   week_end: string
   opening_balance: number
-  closing_balance: number | null
+  closing_balance: number
+  total_income: number
+  total_expense: number
+  net: number
+  is_projected: boolean
+  notes: string | null
 }
 
 interface Transaction {
@@ -37,16 +42,18 @@ function fmt(n: number) {
 }
 
 export function Weeks() {
-  const [params, setParams]       = useSearchParams()
-  const [createOpen, setCreateOpen] = useState(false)
+  const [params, setParams] = useSearchParams()
+  // addModalDate: week_start of the projected card requesting a new transaction
+  const [addModalDate, setAddModalDate] = useState<string | null>(null)
 
   const view     = params.get('view')     ?? 'list'
   const range    = parseInt(params.get('range') ?? '12', 10)
   const category = params.get('category') ?? null
 
+  // Single fetch for both views — range param controls how many weeks the backend returns
   const { data: weeks = [], isLoading } = useQuery<Week[]>({
-    queryKey: ['weeks'],
-    queryFn: () => api.get('/weeks').then((r) => r.data),
+    queryKey: ['weeks', range],
+    queryFn: () => api.get('/weeks', { params: { range } }).then((r) => r.data),
   })
 
   const setView = (v: string) =>
@@ -58,48 +65,39 @@ export function Weeks() {
   const setCategory = (cat: string | null) =>
     setParams((p) => { cat === null ? p.delete('category') : p.set('category', cat); return p })
 
-  // Use last closed week's closing_balance as default opening for new week
-  const sorted = [...weeks].sort((a, b) => b.week_start.localeCompare(a.week_start))
-  const lastClosed = sorted.find((w) => w.closing_balance !== null)
-  const defaultOpening = lastClosed?.closing_balance ?? 0
-
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-semibold">Settimane</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <span className="text-lg leading-none">+</span>
-            Nuova
-          </button>
-          <div className="flex bg-surface rounded-lg p-0.5 gap-0.5 border border-white/5">
-            <ViewTab active={view === 'list'}      onClick={() => setView('list')}>Lista</ViewTab>
-            <ViewTab active={view === 'analytics'} onClick={() => setView('analytics')}>Analytics</ViewTab>
-          </div>
+        <div className="flex bg-surface rounded-lg p-0.5 gap-0.5 border border-white/5">
+          <ViewTab active={view === 'list'}      onClick={() => setView('list')}>Lista</ViewTab>
+          <ViewTab active={view === 'analytics'} onClick={() => setView('analytics')}>Analytics</ViewTab>
         </div>
       </div>
 
-      <CreateWeekModal
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        defaultOpeningBalance={defaultOpening}
+      {/* Range selector — visible in both views */}
+      <div className="flex justify-end mb-5">
+        <RangeSelector value={range} onChange={setRange} />
+      </div>
+
+      {/* Modal for adding transactions from projected week cards (no week_id yet) */}
+      <AddTransactionModal
+        defaultDate={addModalDate ?? undefined}
+        open={addModalDate !== null}
+        onOpenChange={(open) => { if (!open) setAddModalDate(null) }}
       />
 
       {isLoading ? (
         <div className="space-y-3 animate-pulse">
-          {[1, 2, 3].map((i) => <div key={i} className="h-16 bg-surface rounded-xl" />)}
+          {[1, 2, 3].map((i) => <div key={i} className="h-40 bg-surface rounded-2xl" />)}
         </div>
       ) : view === 'list' ? (
-        <ListView weeks={weeks} />
+        <GridView weeks={weeks} onAddTransaction={setAddModalDate} />
       ) : (
         <AnalyticsView
           weeks={weeks}
-          range={range}
           activeCategory={category}
-          onRangeChange={setRange}
           onCategoryChange={setCategory}
         />
       )}
@@ -127,20 +125,144 @@ function ViewTab({
   )
 }
 
+// ---- Grid view ----
+
+function GridView({
+  weeks,
+  onAddTransaction,
+}: {
+  weeks: Week[]
+  onAddTransaction: (weekStart: string) => void
+}) {
+  if (weeks.length === 0) {
+    return <p className="text-muted text-sm text-center py-12">Nessuna settimana trovata.</p>
+  }
+  return (
+    <div className="space-y-3">
+      {weeks.map((w) => (
+        <WeekCard key={w.week_start} week={w} onAddTransaction={onAddTransaction} />
+      ))}
+    </div>
+  )
+}
+
+function WeekCard({
+  week,
+  onAddTransaction,
+}: {
+  week: Week
+  onAddTransaction: (weekStart: string) => void
+}) {
+  const today      = new Date().toISOString().slice(0, 10)
+  const isCurrent  = week.week_start <= today && today <= week.week_end
+  const isProjected = week.is_projected
+  const hasId      = week.week_id !== null
+
+  const weekNum  = getISOWeek(parseISO(week.week_start))
+  const startFmt = format(parseISO(week.week_start), 'd MMM', { locale: it })
+  const endFmt   = format(parseISO(week.week_end), 'd MMM yyyy', { locale: it })
+
+  // Button shown at the bottom of every card
+  const addButton = hasId ? (
+    // Card is a Link — this span is just a label that gets clicked via the Link wrapper
+    <span className="text-xs text-primary">+ Aggiungi transazione</span>
+  ) : (
+    <button
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        onAddTransaction(week.week_start)
+      }}
+      className="text-xs text-primary hover:text-primary/80 transition-colors"
+    >
+      + Aggiungi transazione
+    </button>
+  )
+
+  const content = (
+    <div
+      className={[
+        'bg-surface rounded-2xl p-4 border transition-colors',
+        isProjected
+          ? 'border-dashed border-white/20 hover:bg-white/[0.03]'
+          : isCurrent
+            ? 'border-primary/30 hover:bg-white/5'
+            : 'border-white/5 hover:bg-white/5',
+        hasId ? 'cursor-pointer' : '',
+      ].join(' ')}
+    >
+      {/* Header row */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <p className="text-sm font-medium">
+          Sett.&nbsp;{weekNum}&nbsp;·&nbsp;{startFmt}&nbsp;–&nbsp;{endFmt}
+        </p>
+        {isCurrent && (
+          <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-medium leading-none">
+            CORRENTE
+          </span>
+        )}
+        {isProjected && (
+          <span className="text-[10px] bg-white/5 text-muted px-1.5 py-0.5 rounded-full leading-none">
+            Proiezione
+          </span>
+        )}
+      </div>
+
+      {/* Opening / Closing balances */}
+      <div className="grid grid-cols-2 gap-x-6 mb-3">
+        <div>
+          <p className="text-[10px] text-muted uppercase tracking-wide">Apertura</p>
+          <p className="tabular-nums text-sm">{fmt(week.opening_balance)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted uppercase tracking-wide">
+            Chiusura{isProjected ? ' *' : ''}
+          </p>
+          <p className="tabular-nums text-sm">{fmt(week.closing_balance)}</p>
+        </div>
+      </div>
+
+      {/* Income / Expense / Net */}
+      <div className="flex items-end gap-5 mb-3">
+        <div>
+          <p className="text-[10px] text-muted">Entrate</p>
+          <p className="tabular-nums text-sm text-income">+{fmt(week.total_income)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted">Uscite</p>
+          <p className="tabular-nums text-sm text-expense">-{fmt(week.total_expense)}</p>
+        </div>
+        <div className="ml-auto text-right">
+          <p className="text-[10px] text-muted">Netto</p>
+          <p className={`tabular-nums text-sm font-semibold ${week.net >= 0 ? 'text-income' : 'text-expense'}`}>
+            {week.net >= 0 ? '+' : ''}{fmt(week.net)}
+          </p>
+        </div>
+      </div>
+
+      {addButton}
+    </div>
+  )
+
+  if (hasId) {
+    return <Link to={`/weeks/${week.week_id}`}>{content}</Link>
+  }
+  return content
+}
+
 // ---- Analytics view ----
 
 interface AnalyticsProps {
   weeks: Week[]
-  range: number
   activeCategory: string | null
-  onRangeChange: (r: number) => void
   onCategoryChange: (cat: string | null) => void
 }
 
-function AnalyticsView({ weeks, range, activeCategory, onRangeChange, onCategoryChange }: AnalyticsProps) {
-  const sorted     = [...weeks].sort((a, b) => a.week_start.localeCompare(b.week_start))
-  const rangeWeeks = sorted.slice(-range)
-  const weekIds    = new Set(rangeWeeks.map((w) => w.id))
+function AnalyticsView({ weeks, activeCategory, onCategoryChange }: AnalyticsProps) {
+  // Only weeks with a real DB record have transactions
+  const weekIds = new Set(
+    weeks.filter((w) => w.week_id !== null).map((w) => w.week_id!)
+  )
 
   const { data: allTransactions = [] } = useQuery<Transaction[]>({
     queryKey: ['transactions'],
@@ -149,21 +271,21 @@ function AnalyticsView({ weeks, range, activeCategory, onRangeChange, onCategory
 
   const txns = allTransactions.filter((t) => weekIds.has(t.week_id))
 
-  // Grafico 1 — barre grouped
-  const weekBarData: WeekBarData[] = rangeWeeks.map((w) => {
-    const wTxns  = txns.filter((t) => t.week_id === w.id)
+  // Grafico 1 — barre grouped per settimana
+  const weekBarData: WeekBarData[] = weeks.map((w) => {
+    const wTxns  = w.week_id ? txns.filter((t) => t.week_id === w.week_id) : []
     const income  = wTxns.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
     const expense = wTxns.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
     return { label: format(parseISO(w.week_start), 'd/M'), income, expense }
   })
 
-  // Grafico 2 — andamento saldo
-  const balanceData: BalanceData[] = rangeWeeks.map((w) => ({
+  // Grafico 2 — andamento saldo di chiusura
+  const balanceData: BalanceData[] = weeks.map((w) => ({
     label: format(parseISO(w.week_start), 'd/M'),
     balance: w.closing_balance,
   }))
 
-  // Grafico 3 — breakdown categorie spese (sempre tutte le categorie)
+  // Grafico 3 — breakdown categorie spese (tutte le categorie aggregate)
   const catMap: Record<string, number> = {}
   txns
     .filter((t) => t.type === 'expense')
@@ -175,7 +297,7 @@ function AnalyticsView({ weeks, range, activeCategory, onRangeChange, onCategory
     .map(([category, amount]) => ({ category, amount }))
     .sort((a, b) => b.amount - a.amount)
 
-  // Lista transazioni filtrata per categoria attiva
+  // Lista transazioni filtrate per categoria attiva
   const filteredTxns = activeCategory
     ? txns
         .filter((t) => (t.category ?? 'Altro') === activeCategory && t.type === 'expense')
@@ -184,11 +306,6 @@ function AnalyticsView({ weeks, range, activeCategory, onRangeChange, onCategory
 
   return (
     <div className="space-y-6">
-      {/* Range selector */}
-      <div className="flex justify-end">
-        <RangeSelector value={range} onChange={onRangeChange} />
-      </div>
-
       {/* Grafico 1 — barre grouped */}
       <section className="bg-surface rounded-2xl p-4 border border-white/5">
         <p className="text-xs text-muted uppercase tracking-wide mb-3">Entrate vs Uscite</p>
@@ -244,65 +361,5 @@ function AnalyticsView({ weeks, range, activeCategory, onRangeChange, onCategory
         </section>
       )}
     </div>
-  )
-}
-
-// ---- List view ----
-
-function ListView({ weeks }: { weeks: Week[] }) {
-  if (weeks.length === 0) {
-    return <p className="text-muted text-sm text-center py-12">Nessuna settimana trovata.</p>
-  }
-
-  const grouped: Record<string, Week[]> = {}
-  for (const w of weeks) {
-    const month = format(parseISO(w.week_start), 'MMMM yyyy', { locale: it })
-    ;(grouped[month] ??= []).push(w)
-  }
-
-  return (
-    <div className="space-y-6">
-      {Object.entries(grouped).map(([month, mWeeks]) => (
-        <div key={month}>
-          <p className="text-muted text-xs uppercase tracking-wide mb-2">{month}</p>
-          <div className="space-y-2">
-            {mWeeks.map((w) => <WeekSummaryBar key={w.id} week={w} />)}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function WeekSummaryBar({ week }: { week: Week }) {
-  const start  = format(parseISO(week.week_start), 'd MMM', { locale: it })
-  const end    = format(parseISO(week.week_end),   'd MMM', { locale: it })
-  const closed = week.closing_balance !== null
-  const delta  = closed ? week.closing_balance! - week.opening_balance : null
-
-  return (
-    <Link
-      to={`/weeks/${week.id}`}
-      className="flex items-center justify-between bg-surface hover:bg-white/5 border border-white/5 rounded-xl px-4 py-3 transition-colors"
-    >
-      <div>
-        <p className="text-sm font-medium">{start} – {end}</p>
-        <p className="text-muted text-xs mt-0.5">
-          Apertura: <span className="tabular-nums">{fmt(week.opening_balance)}</span>
-        </p>
-      </div>
-      <div className="text-right">
-        {closed ? (
-          <>
-            <p className={`tabular-nums text-sm font-semibold ${delta! >= 0 ? 'text-income' : 'text-expense'}`}>
-              {delta! >= 0 ? '+' : ''}{fmt(delta!)}
-            </p>
-            <p className="text-muted text-xs tabular-nums">{fmt(week.closing_balance!)}</p>
-          </>
-        ) : (
-          <span className="text-xs text-muted bg-white/5 px-2 py-0.5 rounded-full">In corso</span>
-        )}
-      </div>
-    </Link>
   )
 }

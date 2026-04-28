@@ -8,25 +8,29 @@ import asyncio
 import sys
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
-# Ensure the project root (/app inside Docker, backend/ locally) is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-import app.models  # noqa: F401 — registers all models with Base
+import app.models  # noqa: F401
 from app.core.config import settings
-from app.models.goal import Goal, GoalStatus
+from app.models.goal import Goal, GoalStatus, GoalType
 from app.models.transaction import Transaction, TransactionType
 from app.models.user import User
+from app.models.user_financial_settings import UserFinancialSettings
 from app.models.week import FinancialWeek
 from app.services.auth import hash_password
 
 DEMO_EMAIL = "demo@finflow.app"
 DEMO_PASSWORD = "demo1234"
+
+# Starting balance and date — the user's financial baseline.
+INITIAL_BALANCE = Decimal("3500.00")
+INITIAL_DATE = date.today() - timedelta(weeks=10)
 
 
 def _monday(d: date) -> date:
@@ -34,13 +38,9 @@ def _monday(d: date) -> date:
 
 
 # ---------------------------------------------------------------------------
-# Week definitions: (weeks_back_from_current, list_of_transactions)
-# transactions: (name, amount, type, category, is_recurring, recurrence_rule)
+# Week definitions: weeks_back=0 → current week, 1 → last week, etc.
+# Transactions: (name, amount, type, category, is_recurring, recurrence_rule)
 # ---------------------------------------------------------------------------
-
-# opening_balance of the very first week
-_FIRST_OPENING = Decimal("3500.00")
-
 _WEEKS: list[dict] = [
     {
         "weeks_back": 9,
@@ -76,13 +76,13 @@ _WEEKS: list[dict] = [
     {
         "weeks_back": 6,
         "transactions": [
-            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",    True,  "monthly"),
+            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",     True,  "monthly"),
             ("Dividendi ETF",      Decimal("80.00"),   "income",  "investment", False, None),
-            ("Affitto",            Decimal("800.00"),  "expense", "housing",   True,  "monthly"),
-            ("Spesa supermercato", Decimal("161.30"),  "expense", "food",      True,  "weekly"),
-            ("Bolletta gas",       Decimal("74.60"),   "expense", "utilities", False, None),
-            ("Internet fibra",     Decimal("30.00"),   "expense", "utilities", True,  "monthly"),
-            ("Telefono mobile",    Decimal("14.99"),   "expense", "utilities", True,  "monthly"),
+            ("Affitto",            Decimal("800.00"),  "expense", "housing",    True,  "monthly"),
+            ("Spesa supermercato", Decimal("161.30"),  "expense", "food",       True,  "weekly"),
+            ("Bolletta gas",       Decimal("74.60"),   "expense", "utilities",  False, None),
+            ("Internet fibra",     Decimal("30.00"),   "expense", "utilities",  True,  "monthly"),
+            ("Telefono mobile",    Decimal("14.99"),   "expense", "utilities",  True,  "monthly"),
         ],
     },
     {
@@ -109,26 +109,26 @@ _WEEKS: list[dict] = [
     {
         "weeks_back": 3,
         "transactions": [
-            ("Stipendio mensile",    Decimal("2200.00"), "income",  "salary",        True,  "monthly"),
-            ("Rimborso spese aziendali", Decimal("150.00"), "income", "work",        False, None),
-            ("Affitto",              Decimal("800.00"),  "expense", "housing",       True,  "monthly"),
-            ("Spesa supermercato",   Decimal("162.70"),  "expense", "food",          True,  "weekly"),
-            ("Bolletta elettricità", Decimal("87.20"),   "expense", "utilities",     False, None),
-            ("Internet fibra",       Decimal("30.00"),   "expense", "utilities",     True,  "monthly"),
-            ("Telefono mobile",      Decimal("14.99"),   "expense", "utilities",     True,  "monthly"),
-            ("Netflix",              Decimal("17.99"),   "expense", "entertainment", True,  "monthly"),
-            ("Spotify",              Decimal("10.99"),   "expense", "entertainment", True,  "monthly"),
+            ("Stipendio mensile",        Decimal("2200.00"), "income",  "salary",        True,  "monthly"),
+            ("Rimborso spese aziendali", Decimal("150.00"),  "income",  "work",          False, None),
+            ("Affitto",                  Decimal("800.00"),  "expense", "housing",       True,  "monthly"),
+            ("Spesa supermercato",       Decimal("162.70"),  "expense", "food",          True,  "weekly"),
+            ("Bolletta elettricità",     Decimal("87.20"),   "expense", "utilities",     False, None),
+            ("Internet fibra",           Decimal("30.00"),   "expense", "utilities",     True,  "monthly"),
+            ("Telefono mobile",          Decimal("14.99"),   "expense", "utilities",     True,  "monthly"),
+            ("Netflix",                  Decimal("17.99"),   "expense", "entertainment", True,  "monthly"),
+            ("Spotify",                  Decimal("10.99"),   "expense", "entertainment", True,  "monthly"),
         ],
     },
     {
         "weeks_back": 2,
         "transactions": [
-            ("Dividendi ETF",         Decimal("80.00"),  "income",  "investment",    False, None),
-            ("Spesa supermercato",    Decimal("149.80"), "expense", "food",          True,  "weekly"),
-            ("Ristorante",            Decimal("58.50"),  "expense", "dining",        False, None),
-            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",        True,  "monthly"),
-            ("Benzina",               Decimal("47.60"),  "expense", "transport",     False, None),
-            ("Farmacia",              Decimal("16.80"),  "expense", "health",        False, None),
+            ("Dividendi ETF",        Decimal("80.00"),  "income",  "investment",    False, None),
+            ("Spesa supermercato",   Decimal("149.80"), "expense", "food",          True,  "weekly"),
+            ("Ristorante",           Decimal("58.50"),  "expense", "dining",        False, None),
+            ("Abbonamento palestra", Decimal("40.00"),  "expense", "health",        True,  "monthly"),
+            ("Benzina",              Decimal("47.60"),  "expense", "transport",     False, None),
+            ("Farmacia",             Decimal("16.80"),  "expense", "health",        False, None),
         ],
     },
     {
@@ -142,7 +142,7 @@ _WEEKS: list[dict] = [
             ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "monthly"),
         ],
     },
-    # Current week — no closing_balance (still open)
+    # Current week — still open, partial transactions.
     {
         "weeks_back": 0,
         "transactions": [
@@ -153,27 +153,27 @@ _WEEKS: list[dict] = [
     },
 ]
 
+# Goals use real semantics:
+#   liquidity → target is a minimum balance to reach by the date
+#   savings   → target is an amount to accumulate from baseline
 _GOALS = [
     {
         "name": "Fondo d'emergenza",
-        "target_amount": Decimal("5000.00"),
-        "current_amount": Decimal("1500.00"),
+        "goal_type": GoalType.liquidity,
+        "target_amount": Decimal("6000.00"),
         "target_date": date(2026, 12, 31),
-        "status": GoalStatus.active,
     },
     {
         "name": "Vacanza in Grecia",
-        "target_amount": Decimal("2500.00"),
-        "current_amount": Decimal("850.00"),
+        "goal_type": GoalType.savings,
+        "target_amount": Decimal("1500.00"),
         "target_date": date(2026, 7, 15),
-        "status": GoalStatus.active,
     },
     {
         "name": "Nuovo MacBook Pro",
+        "goal_type": GoalType.savings,
         "target_amount": Decimal("2000.00"),
-        "current_amount": Decimal("350.00"),
         "target_date": date(2026, 10, 31),
-        "status": GoalStatus.active,
     },
 ]
 
@@ -198,10 +198,18 @@ async def seed_database() -> None:
         session.add(user)
         await session.flush()
 
-        # --- Weeks + transactions ---
+        # --- UserFinancialSettings ---
+        session.add(UserFinancialSettings(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            initial_balance=INITIAL_BALANCE,
+            initial_balance_date=INITIAL_DATE,
+        ))
+        await session.flush()
+
+        # --- Weeks + Transactions ---
         current_monday = _monday(date.today())
-        running_balance = _FIRST_OPENING
-        current_week_opening = _FIRST_OPENING
+        running_balance = INITIAL_BALANCE
 
         for week_def in _WEEKS:
             weeks_back: int = week_def["weeks_back"]
@@ -209,14 +217,10 @@ async def seed_database() -> None:
             week_end = week_start + timedelta(days=6)
             is_current = weeks_back == 0
 
-            # Calculate net for this week to derive closing balance
             net = Decimal("0")
             for tx in week_def["transactions"]:
                 _, amount, tx_type, *_ = tx
-                if tx_type == "income":
-                    net += amount
-                else:
-                    net -= amount
+                net += amount if tx_type == "income" else -amount
 
             closing = None if is_current else running_balance + net
 
@@ -232,54 +236,56 @@ async def seed_database() -> None:
             await session.flush()
 
             for name, amount, tx_type, category, is_recurring, recurrence_rule in week_def["transactions"]:
-                tx_date = week_start + timedelta(days=1)  # default: Tuesday of the week
-                session.add(
-                    Transaction(
-                        id=uuid.uuid4(),
-                        user_id=user.id,
-                        week_id=week.id,
-                        name=name,
-                        amount=amount,
-                        type=TransactionType(tx_type),
-                        category=category,
-                        is_recurring=is_recurring,
-                        recurrence_rule=recurrence_rule,
-                        transaction_date=tx_date,
-                    )
-                )
+                session.add(Transaction(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    week_id=week.id,
+                    name=name,
+                    amount=amount,
+                    type=TransactionType(tx_type),
+                    category=category,
+                    is_recurring=is_recurring,
+                    recurrence_rule=recurrence_rule,
+                    transaction_date=week_start + timedelta(days=1),
+                ))
 
-            if is_current:
-                current_week_opening = running_balance
-            else:
+            if not is_current:
                 running_balance = running_balance + net
+
+        # current_balance is the opening of the current week
+        # (closing not yet set since the week is still open)
+        current_balance = running_balance
 
         # --- Goals ---
         for goal_def in _GOALS:
-            session.add(
-                Goal(
-                    id=uuid.uuid4(),
-                    user_id=user.id,
-                    name=goal_def["name"],
-                    target_amount=goal_def["target_amount"],
-                    current_amount=goal_def["current_amount"],
-                    target_date=goal_def["target_date"],
-                    status=goal_def["status"],
-                )
-            )
+            goal_type = goal_def["goal_type"]
+            baseline = current_balance if goal_type == GoalType.savings else None
+            current_amount = current_balance if goal_type == GoalType.liquidity else Decimal("0")
+
+            session.add(Goal(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                name=goal_def["name"],
+                goal_type=goal_type,
+                target_amount=goal_def["target_amount"],
+                target_date=goal_def["target_date"],
+                baseline_balance=baseline,
+                current_amount=current_amount,
+                status=GoalStatus.active,
+            ))
 
         await session.commit()
 
     await engine.dispose()
 
-    total_weeks = len(_WEEKS)
     total_txs = sum(len(w["transactions"]) for w in _WEEKS)
-    print(f"Seed complete.")
-    print(f"  User:         {DEMO_EMAIL} / {DEMO_PASSWORD}")
-    print(f"  Weeks:        {total_weeks} ({total_weeks - 1} past + 1 current)")
-    print(f"  Transactions: {total_txs}")
-    print(f"  Goals:        {len(_GOALS)}")
-    print(f"  Opening balance (week 1): €{_FIRST_OPENING}")
-    print(f"  Current week opening:     €{current_week_opening}")
+    print("Seed complete.")
+    print(f"  User:            {DEMO_EMAIL} / {DEMO_PASSWORD}")
+    print(f"  Weeks:           {len(_WEEKS)} ({len(_WEEKS) - 1} past + 1 current)")
+    print(f"  Transactions:    {total_txs}")
+    print(f"  Goals:           {len(_GOALS)}")
+    print(f"  Initial balance: €{INITIAL_BALANCE}")
+    print(f"  Current opening: €{current_balance}")
 
 
 if __name__ == "__main__":

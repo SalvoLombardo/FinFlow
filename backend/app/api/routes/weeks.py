@@ -1,49 +1,50 @@
-import asyncio
 import uuid
+from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.audit.kafka_producer import AuditEvent, audit_producer
 from app.core.database import get_db
-from app.events.schemas import EventType, FinFlowEvent
-from app.messaging.sns_publisher import sns_publisher
 from app.models.user import User
 from app.models.week import FinancialWeek
-from app.schemas.week import WeekCreate, WeekRead, WeekUpdate
+from app.schemas.week import WeekRead, WeekSummary, WeekUpdate
+from app.services.projection import calculate_projection
+from app.services.weeks import week_monday
 
 router = APIRouter()
 
 
-def _client_ip(request: Request) -> str | None:
-    return request.client.host if request.client else None
-
-
-@router.get("", response_model=list[WeekRead])
+@router.get("", response_model=list[WeekSummary])
 async def list_weeks(
+    range: int = Query(default=12, ge=4, le=52, description="Total weeks to show (4, 8 or 12)."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(FinancialWeek)
-        .where(FinancialWeek.user_id == current_user.id)
-        .order_by(FinancialWeek.week_start)
+    n_past = (range - 1) // 2
+    n_future = (range - 1) - n_past
+    summaries = await calculate_projection(
+        user_id=current_user.id,
+        n_weeks_back=n_past,
+        n_weeks_forward=n_future,
+        db=db,
     )
-    return result.scalars().all()
-
-
-@router.post("", response_model=WeekRead, status_code=status.HTTP_201_CREATED)
-async def create_week(
-    body: WeekCreate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    week = FinancialWeek(**body.model_dump(), user_id=current_user.id)
-    db.add(week)
-    await db.flush()
-    return week
+    return [
+        WeekSummary(
+            week_id=s.week_id,
+            week_start=s.week_start,
+            week_end=s.week_end,
+            opening_balance=float(s.opening_balance),
+            closing_balance=float(s.closing_balance),
+            total_income=float(s.total_income),
+            total_expense=float(s.total_expense),
+            net=float(s.total_income - s.total_expense),
+            is_projected=s.is_projected,
+            notes=s.notes,
+        )
+        for s in summaries
+    ]
 
 
 @router.get("/{week_id}", response_model=WeekRead)
@@ -67,7 +68,6 @@ async def get_week(
 @router.put("/{week_id}", response_model=WeekRead)
 async def update_week(
     week_id: uuid.UUID,
-    request: Request,
     body: WeekUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -81,31 +81,6 @@ async def update_week(
     week = result.scalar_one_or_none()
     if not week:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Week not found")
-    before = WeekRead.model_validate(week).model_dump(mode="json")
-    for field, value in body.model_dump(exclude_none=True).items():
-        setattr(week, field, value)
-    if body.closing_balance is not None:
-        await sns_publisher.publish(
-            FinFlowEvent(
-                event_type=EventType.WEEK_CLOSED,
-                user_id=str(current_user.id),
-                payload={
-                    "week_id": str(week.id),
-                    "closing_balance": str(week.closing_balance),
-                },
-            )
-        )
-    asyncio.create_task(
-        audit_producer.send(
-            AuditEvent(
-                user_id=str(current_user.id),
-                action="week.closed" if body.closing_balance is not None else "week.updated",
-                entity_type="week",
-                entity_id=str(week.id),
-                before_state=before,
-                after_state=WeekRead.model_validate(week).model_dump(mode="json"),
-                ip_address=_client_ip(request),
-            )
-        )
-    )
+    if body.notes is not None:
+        week.notes = body.notes
     return week

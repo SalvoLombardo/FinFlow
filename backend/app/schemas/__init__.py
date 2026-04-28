@@ -1,15 +1,16 @@
 from app.schemas.auth import Token, UserCreate, UserLogin, UserRead
-from app.schemas.dashboard import DashboardSummary, GoalDelta, WeekProjection
+from app.schemas.dashboard import DashboardSummary, GoalDelta
 from app.schemas.goal import GoalCreate, GoalRead, GoalUpdate
+from app.schemas.settings import FinancialSettingsRead, FinancialSettingsUpdate
 from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
-from app.schemas.week import WeekCreate, WeekRead, WeekUpdate
+from app.schemas.week import WeekRead, WeekSummary, WeekUpdate
 
 __all__ = [
     "Token",
     "UserCreate",
     "UserLogin",
     "UserRead",
-    "WeekCreate",
+    "WeekSummary",
     "WeekRead",
     "WeekUpdate",
     "TransactionCreate",
@@ -18,7 +19,8 @@ __all__ = [
     "GoalCreate",
     "GoalRead",
     "GoalUpdate",
-    "WeekProjection",
     "GoalDelta",
     "DashboardSummary",
+    "FinancialSettingsRead",
+    "FinancialSettingsUpdate",
 ]
