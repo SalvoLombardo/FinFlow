@@ -4,21 +4,34 @@ import { api } from '../api/client'
 import { BalanceTrendChart } from '../components/analytics/BalanceTrendChart'
 import type { BalanceData } from '../components/analytics/BalanceTrendChart'
 
-interface DashboardSummary {
-  current_balance: number
-  projection: { week_start: string; projected_balance: number }[]
-  goals: {
-    id: string
-    name: string
-    target_amount: number
-    current_amount: number
-    target_date: string
-  }[]
+interface WeekSummary {
+  week_id: string | null
+  week_start: string
+  week_end: string
+  opening_balance: number
+  closing_balance: number
+  total_income: number
+  total_expense: number
+  net: number
+  is_projected: boolean
 }
 
-interface Week {
+interface GoalDelta {
   id: string
-  closing_balance: number | null
+  name: string
+  target_amount: number
+  current_amount: number
+  remaining: number
+  progress_pct: number
+  target_date: string
+  goal_type: 'liquidity' | 'savings'
+  status: string
+}
+
+interface DashboardSummary {
+  current_balance: number
+  projection: WeekSummary[]
+  goals: GoalDelta[]
 }
 
 interface Transaction {
@@ -40,18 +53,14 @@ export function Dashboard() {
     queryFn: () => api.get('/dashboard/summary').then((r) => r.data),
   })
 
-  const { data: weeks = [] } = useQuery<Week[]>({
-    queryKey: ['weeks'],
-    queryFn: () => api.get('/weeks').then((r) => r.data),
-  })
-
-  const currentWeek = weeks.find((w) => w.closing_balance === null)
+  // projection[0] is always the current week (backend: n_weeks_back=0)
+  const currentWeek = data?.projection[0] ?? null
 
   const { data: currentTxns = [] } = useQuery<Transaction[]>({
-    queryKey: ['transactions', currentWeek?.id],
+    queryKey: ['transactions', currentWeek?.week_id],
     queryFn: () =>
-      api.get('/transactions', { params: { week_id: currentWeek!.id } }).then((r) => r.data),
-    enabled: !!currentWeek,
+      api.get('/transactions', { params: { week_id: currentWeek!.week_id } }).then((r) => r.data),
+    enabled: !!currentWeek?.week_id,
   })
 
   if (isLoading) return <PageShell><Skeleton /></PageShell>
@@ -59,20 +68,20 @@ export function Dashboard() {
 
   const balance = data!.current_balance
 
-  // Projection chart data
-  const projectionData: BalanceData[] = data!.projection.slice(0, 8).map((p, i) => ({
+  // Projection chart — closing_balance for each week in the horizon
+  const projectionData: BalanceData[] = data!.projection.map((w, i) => ({
     label: `S${i + 1}`,
-    balance: p.projected_balance,
+    balance: w.closing_balance,
   }))
   const goalTarget = data!.goals[0]?.target_amount
 
-  // Current week totals
+  // Current week totals from real transactions (0 if week has no DB record yet)
   const totalIn  = currentTxns.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
   const totalOut = currentTxns.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
   return (
     <PageShell>
-      {/* Hero row */}
+      {/* Hero row — saldo + primi 2 obiettivi */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-surface rounded-2xl p-5 border border-white/5">
           <p className="text-muted text-xs mb-1">Saldo attuale</p>
@@ -81,30 +90,29 @@ export function Dashboard() {
           </p>
         </div>
 
-        {data!.goals.slice(0, 2).map((g) => {
-          const pct = Math.min(100, Math.round((g.current_amount / g.target_amount) * 100))
-          return (
-            <div key={g.id} className="bg-surface rounded-2xl p-5 border border-white/5">
-              <p className="text-muted text-xs mb-1 truncate">{g.name}</p>
-              <div className="flex items-end gap-2">
-                <p className="tabular-nums text-lg font-semibold">{pct}%</p>
-                <p className="text-muted text-xs mb-0.5">di {fmt(g.target_amount)}</p>
-              </div>
-              <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
+        {data!.goals.slice(0, 2).map((g) => (
+          <div key={g.id} className="bg-surface rounded-2xl p-5 border border-white/5">
+            <p className="text-muted text-xs mb-1 truncate">{g.name}</p>
+            <div className="flex items-end gap-2">
+              <p className="tabular-nums text-lg font-semibold">{g.progress_pct}%</p>
+              <p className="text-muted text-xs mb-0.5">di {fmt(g.target_amount)}</p>
             </div>
-          )
-        })}
+            <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${g.progress_pct}%` }}
+              />
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Projection chart */}
       <div className="bg-surface rounded-2xl p-5 border border-white/5 mb-6">
         <p className="text-sm font-medium mb-1">Proiezione 8 settimane</p>
-        <p className="text-muted text-xs mb-4">Saldo proiettato basato sulle transazioni ricorrenti</p>
+        <p className="text-muted text-xs mb-4">
+          Saldo proiettato basato sulle transazioni ricorrenti
+        </p>
         <BalanceTrendChart data={projectionData} goalTarget={goalTarget} />
       </div>
 
@@ -113,12 +121,14 @@ export function Dashboard() {
         <div className="bg-surface rounded-2xl p-5 border border-white/5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm font-medium">Settimana in corso</p>
-            <Link
-              to={`/weeks/${currentWeek.id}`}
-              className="text-xs text-primary hover:text-primary/80 transition-colors"
-            >
-              Vedi tutto →
-            </Link>
+            {currentWeek.week_id && (
+              <Link
+                to={`/weeks/${currentWeek.week_id}`}
+                className="text-xs text-primary hover:text-primary/80 transition-colors"
+              >
+                Vedi tutto →
+              </Link>
+            )}
           </div>
 
           {currentTxns.length === 0 ? (

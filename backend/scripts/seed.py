@@ -25,8 +25,8 @@ from app.models.user_financial_settings import UserFinancialSettings
 from app.models.week import FinancialWeek
 from app.services.auth import hash_password
 
-DEMO_EMAIL = "demo@finflow.app"
-DEMO_PASSWORD = "demo1234"
+DEMO_EMAIL = "admin@admin.com"
+DEMO_PASSWORD = "Prova1234@"
 
 # Starting balance and date — the user's financial baseline.
 INITIAL_BALANCE = Decimal("3500.00")
@@ -45,88 +45,88 @@ _WEEKS: list[dict] = [
     {
         "weeks_back": 9,
         "transactions": [
-            ("Stipendio mensile",    Decimal("2200.00"), "income",  "salary",        True,  "monthly"),
-            ("Affitto",              Decimal("800.00"),  "expense", "housing",       True,  "monthly"),
-            ("Spesa supermercato",   Decimal("148.50"),  "expense", "food",          True,  "weekly"),
+            ("Stipendio mensile",    Decimal("2200.00"), "income",  "salary",        True,  "M:1"),
+            ("Affitto",              Decimal("800.00"),  "expense", "housing",       True,  "M:1"),
+            ("Spesa supermercato",   Decimal("148.50"),  "expense", "food",          True,  "W:1"),
             ("Bolletta elettricità", Decimal("92.40"),   "expense", "utilities",     False, None),
-            ("Internet fibra",       Decimal("30.00"),   "expense", "utilities",     True,  "monthly"),
-            ("Telefono mobile",      Decimal("14.99"),   "expense", "utilities",     True,  "monthly"),
+            ("Internet fibra",       Decimal("30.00"),   "expense", "utilities",     True,  "M:1"),
+            ("Telefono mobile",      Decimal("14.99"),   "expense", "utilities",     True,  "M:1"),
         ],
     },
     {
         "weeks_back": 8,
         "transactions": [
             ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None),
-            ("Spesa supermercato",       Decimal("142.80"), "expense", "food",          True,  "weekly"),
+            ("Spesa supermercato",       Decimal("142.80"), "expense", "food",          True,  "W:1"),
             ("Ristorante",               Decimal("67.50"),  "expense", "dining",        False, None),
             ("Benzina",                  Decimal("52.00"),  "expense", "transport",     False, None),
-            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "monthly"),
-            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "monthly"),
+            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1"),
+            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1"),
         ],
     },
     {
         "weeks_back": 7,
         "transactions": [
-            ("Spesa supermercato",    Decimal("156.20"), "expense", "food",      True,  "weekly"),
-            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "monthly"),
-            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "monthly"),
+            ("Spesa supermercato",    Decimal("156.20"), "expense", "food",      True,  "W:1"),
+            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "M:1"),
+            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "M:1"),
             ("Farmacia",              Decimal("34.80"),  "expense", "health",    False, None),
         ],
     },
     {
         "weeks_back": 6,
         "transactions": [
-            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",     True,  "monthly"),
+            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",     True,  "M:1"),
             ("Dividendi ETF",      Decimal("80.00"),   "income",  "investment", False, None),
-            ("Affitto",            Decimal("800.00"),  "expense", "housing",    True,  "monthly"),
-            ("Spesa supermercato", Decimal("161.30"),  "expense", "food",       True,  "weekly"),
+            ("Affitto",            Decimal("800.00"),  "expense", "housing",    True,  "M:1"),
+            ("Spesa supermercato", Decimal("161.30"),  "expense", "food",       True,  "W:1"),
             ("Bolletta gas",       Decimal("74.60"),   "expense", "utilities",  False, None),
-            ("Internet fibra",     Decimal("30.00"),   "expense", "utilities",  True,  "monthly"),
-            ("Telefono mobile",    Decimal("14.99"),   "expense", "utilities",  True,  "monthly"),
+            ("Internet fibra",     Decimal("30.00"),   "expense", "utilities",  True,  "M:1"),
+            ("Telefono mobile",    Decimal("14.99"),   "expense", "utilities",  True,  "M:1"),
         ],
     },
     {
         "weeks_back": 5,
         "transactions": [
             ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None),
-            ("Spesa supermercato",       Decimal("148.90"), "expense", "food",          True,  "weekly"),
+            ("Spesa supermercato",       Decimal("148.90"), "expense", "food",          True,  "W:1"),
             ("Ristorante",               Decimal("82.00"),  "expense", "dining",        False, None),
             ("Abbigliamento",            Decimal("124.50"), "expense", "shopping",      False, None),
-            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "monthly"),
-            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "monthly"),
+            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1"),
+            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1"),
         ],
     },
     {
         "weeks_back": 4,
         "transactions": [
-            ("Spesa supermercato",    Decimal("151.40"), "expense", "food",      True,  "weekly"),
-            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "monthly"),
+            ("Spesa supermercato",    Decimal("151.40"), "expense", "food",      True,  "W:1"),
+            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "M:1"),
             ("Benzina",               Decimal("56.80"),  "expense", "transport", False, None),
-            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "monthly"),
+            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "M:1"),
             ("Farmacia",              Decimal("22.50"),  "expense", "health",    False, None),
         ],
     },
     {
         "weeks_back": 3,
         "transactions": [
-            ("Stipendio mensile",        Decimal("2200.00"), "income",  "salary",        True,  "monthly"),
+            ("Stipendio mensile",        Decimal("2200.00"), "income",  "salary",        True,  "M:1"),
             ("Rimborso spese aziendali", Decimal("150.00"),  "income",  "work",          False, None),
-            ("Affitto",                  Decimal("800.00"),  "expense", "housing",       True,  "monthly"),
-            ("Spesa supermercato",       Decimal("162.70"),  "expense", "food",          True,  "weekly"),
+            ("Affitto",                  Decimal("800.00"),  "expense", "housing",       True,  "M:1"),
+            ("Spesa supermercato",       Decimal("162.70"),  "expense", "food",          True,  "W:1"),
             ("Bolletta elettricità",     Decimal("87.20"),   "expense", "utilities",     False, None),
-            ("Internet fibra",           Decimal("30.00"),   "expense", "utilities",     True,  "monthly"),
-            ("Telefono mobile",          Decimal("14.99"),   "expense", "utilities",     True,  "monthly"),
-            ("Netflix",                  Decimal("17.99"),   "expense", "entertainment", True,  "monthly"),
-            ("Spotify",                  Decimal("10.99"),   "expense", "entertainment", True,  "monthly"),
+            ("Internet fibra",           Decimal("30.00"),   "expense", "utilities",     True,  "M:1"),
+            ("Telefono mobile",          Decimal("14.99"),   "expense", "utilities",     True,  "M:1"),
+            ("Netflix",                  Decimal("17.99"),   "expense", "entertainment", True,  "M:1"),
+            ("Spotify",                  Decimal("10.99"),   "expense", "entertainment", True,  "M:1"),
         ],
     },
     {
         "weeks_back": 2,
         "transactions": [
             ("Dividendi ETF",        Decimal("80.00"),  "income",  "investment",    False, None),
-            ("Spesa supermercato",   Decimal("149.80"), "expense", "food",          True,  "weekly"),
+            ("Spesa supermercato",   Decimal("149.80"), "expense", "food",          True,  "W:1"),
             ("Ristorante",           Decimal("58.50"),  "expense", "dining",        False, None),
-            ("Abbonamento palestra", Decimal("40.00"),  "expense", "health",        True,  "monthly"),
+            ("Abbonamento palestra", Decimal("40.00"),  "expense", "health",        True,  "M:1"),
             ("Benzina",              Decimal("47.60"),  "expense", "transport",     False, None),
             ("Farmacia",             Decimal("16.80"),  "expense", "health",        False, None),
         ],
@@ -135,20 +135,20 @@ _WEEKS: list[dict] = [
         "weeks_back": 1,
         "transactions": [
             ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None),
-            ("Spesa supermercato",       Decimal("157.40"), "expense", "food",          True,  "weekly"),
-            ("Abbonamento trasporti",    Decimal("60.00"),  "expense", "transport",     True,  "monthly"),
+            ("Spesa supermercato",       Decimal("157.40"), "expense", "food",          True,  "W:1"),
+            ("Abbonamento trasporti",    Decimal("60.00"),  "expense", "transport",     True,  "M:1"),
             ("Abbigliamento",            Decimal("89.00"),  "expense", "shopping",      False, None),
-            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "monthly"),
-            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "monthly"),
+            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1"),
+            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1"),
         ],
     },
     # Current week — still open, partial transactions.
     {
         "weeks_back": 0,
         "transactions": [
-            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",  True,  "monthly"),
-            ("Affitto",            Decimal("800.00"),  "expense", "housing", True,  "monthly"),
-            ("Spesa supermercato", Decimal("118.60"),  "expense", "food",    True,  "weekly"),
+            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",  True,  "M:1"),
+            ("Affitto",            Decimal("800.00"),  "expense", "housing", True,  "M:1"),
+            ("Spesa supermercato", Decimal("118.60"),  "expense", "food",    True,  "W:1"),
         ],
     },
 ]

@@ -3,13 +3,18 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 
+export type GoalType = 'savings' | 'liquidity'
+
 export interface GoalData {
   id: string
   name: string
   target_amount: number
   current_amount: number
   target_date: string
+  goal_type: GoalType
   status: 'active' | 'achieved' | 'abandoned'
+  progress_pct: number
+  remaining: number
 }
 
 interface Props {
@@ -21,6 +26,11 @@ interface Props {
 const FIELD =
   'w-full bg-bg border border-white/10 rounded-xl px-3 py-2 text-sm text-text placeholder-muted focus:outline-none focus:border-primary transition-colors'
 
+const TYPE_DESCRIPTIONS: Record<GoalType, string> = {
+  savings:   'Vuoi mettere da parte un importo a partire da oggi',
+  liquidity: 'Vuoi avere almeno questo saldo totale sul conto',
+}
+
 export function GoalModal({ open, onOpenChange, goal }: Props) {
   const qc = useQueryClient()
   const isEdit = !!goal
@@ -28,7 +38,7 @@ export function GoalModal({ open, onOpenChange, goal }: Props) {
   const [name, setName]               = useState('')
   const [targetAmount, setTargetAmount] = useState('')
   const [targetDate, setTargetDate]   = useState('')
-  const [currentAmount, setCurrentAmount] = useState('')
+  const [goalType, setGoalType]       = useState<GoalType>('savings')
   const [error, setError]             = useState<string | null>(null)
 
   useEffect(() => {
@@ -36,12 +46,13 @@ export function GoalModal({ open, onOpenChange, goal }: Props) {
       setName(goal.name)
       setTargetAmount(String(goal.target_amount))
       setTargetDate(goal.target_date)
-      setCurrentAmount(String(goal.current_amount))
+      setGoalType(goal.goal_type)
     }
   }, [open, goal])
 
   const reset = () => {
-    setName(''); setTargetAmount(''); setTargetDate(''); setCurrentAmount(''); setError(null)
+    setName(''); setTargetAmount(''); setTargetDate('')
+    setGoalType('savings'); setError(null)
   }
 
   const handleOpenChange = (next: boolean) => {
@@ -55,14 +66,14 @@ export function GoalModal({ open, onOpenChange, goal }: Props) {
   }
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; target_amount: number; target_date: string; current_amount: number }) =>
+    mutationFn: (data: { name: string; target_amount: number; target_date: string; goal_type: GoalType }) =>
       api.post('/goals', data).then((r) => r.data),
     onSuccess: () => { invalidate(); handleOpenChange(false) },
     onError: () => setError('Errore durante il salvataggio. Riprova.'),
   })
 
   const updateMutation = useMutation({
-    mutationFn: (data: { name?: string; target_amount?: number; target_date?: string; current_amount?: number }) =>
+    mutationFn: (data: { name?: string; target_amount?: number; target_date?: string; goal_type?: GoalType }) =>
       api.put(`/goals/${goal!.id}`, data).then((r) => r.data),
     onSuccess: () => { invalidate(); handleOpenChange(false) },
     onError: () => setError('Errore durante il salvataggio. Riprova.'),
@@ -73,7 +84,6 @@ export function GoalModal({ open, onOpenChange, goal }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const target = parseFloat(targetAmount)
-    const current = parseFloat(currentAmount || '0')
     if (!name.trim() || isNaN(target) || target <= 0) {
       setError('Nome e importo obiettivo (> 0) sono obbligatori.')
       return
@@ -84,7 +94,7 @@ export function GoalModal({ open, onOpenChange, goal }: Props) {
       name: name.trim(),
       target_amount: target,
       target_date: targetDate,
-      current_amount: isNaN(current) ? 0 : current,
+      goal_type: goalType,
     }
     if (isEdit) updateMutation.mutate(payload)
     else createMutation.mutate(payload)
@@ -100,19 +110,43 @@ export function GoalModal({ open, onOpenChange, goal }: Props) {
           </Dialog.Title>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Goal type toggle */}
+            <div>
+              <div className="flex rounded-xl overflow-hidden border border-white/10">
+                {(['savings', 'liquidity'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setGoalType(t)}
+                    className={[
+                      'flex-1 py-2 text-sm font-medium transition-colors',
+                      goalType === t ? 'bg-primary text-white' : 'text-muted hover:text-text',
+                    ].join(' ')}
+                  >
+                    {t === 'savings' ? 'Risparmio' : 'Liquidità'}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted mt-1.5 px-0.5">
+                {TYPE_DESCRIPTIONS[goalType]}
+              </p>
+            </div>
+
             <div>
               <label className="text-xs text-muted block mb-1">Nome *</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="es. Fondo emergenza"
+                placeholder={goalType === 'savings' ? 'es. Fondo emergenza' : 'es. Saldo minimo dicembre'}
                 className={FIELD}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted block mb-1">Obiettivo (€) *</label>
+                <label className="text-xs text-muted block mb-1">
+                  {goalType === 'savings' ? 'Da risparmiare (€) *' : 'Saldo target (€) *'}
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -124,27 +158,14 @@ export function GoalModal({ open, onOpenChange, goal }: Props) {
                 />
               </div>
               <div>
-                <label className="text-xs text-muted block mb-1">Già risparmiato (€)</label>
+                <label className="text-xs text-muted block mb-1">Data obiettivo *</label>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={currentAmount}
-                  onChange={(e) => setCurrentAmount(e.target.value)}
-                  placeholder="0.00"
-                  className={`${FIELD} tabular-nums`}
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                  className={`${FIELD} [color-scheme:dark]`}
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="text-xs text-muted block mb-1">Data obiettivo *</label>
-              <input
-                type="date"
-                value={targetDate}
-                onChange={(e) => setTargetDate(e.target.value)}
-                className={`${FIELD} [color-scheme:dark]`}
-              />
             </div>
 
             {error && <p className="text-expense text-xs">{error}</p>}

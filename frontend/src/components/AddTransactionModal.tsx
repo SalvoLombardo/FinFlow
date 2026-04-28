@@ -10,6 +10,7 @@ interface TransactionCreate {
   category?: string
   transaction_date?: string
   is_recurring: boolean
+  recurrence_rule?: string
 }
 
 interface Transaction {
@@ -43,8 +44,9 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
   const [type, setType]           = useState<'income' | 'expense'>('expense')
   const [category, setCategory]   = useState('')
   const [date, setDate]           = useState('')
-  const [recurring, setRecurring] = useState(false)
-  const [error, setError]         = useState<string | null>(null)
+  const [recurring, setRecurring]         = useState(false)
+  const [recurrenceRule, setRecurrenceRule] = useState<string>('M:1')
+  const [error, setError]                 = useState<string | null>(null)
 
   // Pre-fill date when modal opens (supports projected-week cards)
   useEffect(() => {
@@ -53,7 +55,8 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
 
   const reset = () => {
     setName(''); setAmount(''); setType('expense')
-    setCategory(''); setDate(''); setRecurring(false); setError(null)
+    setCategory(''); setDate(''); setRecurring(false)
+    setRecurrenceRule('M:1'); setError(null)
   }
 
   const handleOpenChange = (next: boolean) => {
@@ -119,6 +122,7 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
       category: category.trim() || undefined,
       transaction_date: date || undefined,
       is_recurring: recurring,
+      recurrence_rule: recurring ? recurrenceRule : undefined,
     })
   }
 
@@ -204,6 +208,25 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
               />
               <span className="text-sm text-text">Transazione ricorrente</span>
             </label>
+
+            {recurring && (
+              <div>
+                <label className="text-xs text-muted block mb-1">Frequenza</label>
+                <select
+                  value={recurrenceRule}
+                  onChange={(e) => setRecurrenceRule(e.target.value)}
+                  className={`${FIELD} cursor-pointer`}
+                >
+                  <option value="W:1">Ogni settimana</option>
+                  <option value="W:2">Ogni 2 settimane</option>
+                  <option value="M:1">Ogni mese</option>
+                  <option value="M:2">Ogni 2 mesi</option>
+                  <option value="M:3">Ogni 3 mesi (trimestrale)</option>
+                  <option value="M:6">Ogni 6 mesi (semestrale)</option>
+                  <option value="Y:1">Ogni anno</option>
+                </select>
+              </div>
+            )}
 
             {error && <p className="text-expense text-xs">{error}</p>}
 

@@ -12,8 +12,8 @@ function fmt(n: number) {
 
 export function Goals() {
   const qc = useQueryClient()
-  const [modalOpen, setModalOpen]   = useState(false)
-  const [editGoal, setEditGoal]     = useState<GoalData | undefined>(undefined)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editGoal, setEditGoal]   = useState<GoalData | undefined>(undefined)
 
   const { data: goals = [], isLoading } = useQuery<GoalData[]>({
     queryKey: ['goals'],
@@ -44,8 +44,8 @@ export function Goals() {
     }
   }
 
-  const active   = goals.filter((g) => g.status === 'active')
-  const achieved = goals.filter((g) => g.status === 'achieved')
+  const active    = goals.filter((g) => g.status === 'active')
+  const achieved  = goals.filter((g) => g.status === 'achieved')
   const abandoned = goals.filter((g) => g.status === 'abandoned')
 
   return (
@@ -97,9 +97,7 @@ export function Goals() {
             <section>
               <p className="text-muted text-xs uppercase tracking-wide mb-3">Raggiunti</p>
               <div className="space-y-3">
-                {achieved.map((g) => (
-                  <GoalCard key={g.id} goal={g} />
-                ))}
+                {achieved.map((g) => <GoalCard key={g.id} goal={g} />)}
               </div>
             </section>
           )}
@@ -107,9 +105,7 @@ export function Goals() {
             <section>
               <p className="text-muted text-xs uppercase tracking-wide mb-3">Abbandonati</p>
               <div className="space-y-3">
-                {abandoned.map((g) => (
-                  <GoalCard key={g.id} goal={g} />
-                ))}
+                {abandoned.map((g) => <GoalCard key={g.id} goal={g} />)}
               </div>
             </section>
           )}
@@ -136,16 +132,33 @@ function GoalCard({
   onAbandon?: () => void
   abandonPending?: boolean
 }) {
-  const pct      = Math.min(100, Math.round((goal.current_amount / goal.target_amount) * 100))
-  const daysLeft = differenceInDays(parseISO(goal.target_date), new Date())
+  const daysLeft  = differenceInDays(parseISO(goal.target_date), new Date())
   const achieved  = goal.status === 'achieved'
   const abandoned = goal.status === 'abandoned'
+
+  const isSavings   = goal.goal_type === 'savings'
+  const progressPct = goal.progress_pct  // already 0-100, computed by backend
+
+  const progressLabel = isSavings
+    ? `Risparmiati: ${fmt(goal.current_amount)} / ${fmt(goal.target_amount)}`
+    : `Saldo: ${fmt(goal.current_amount)} / ${fmt(goal.target_amount)}`
 
   return (
     <div className={`bg-surface border border-white/5 rounded-2xl p-5 ${abandoned ? 'opacity-50' : ''}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0">
-          <p className="font-medium text-sm truncate">{goal.name}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-medium text-sm truncate">{goal.name}</p>
+            {/* Goal type badge */}
+            <span className={[
+              'text-[10px] px-1.5 py-0.5 rounded-full leading-none shrink-0',
+              isSavings
+                ? 'bg-primary/10 text-primary'
+                : 'bg-white/10 text-muted',
+            ].join(' ')}>
+              {isSavings ? 'Risparmio' : 'Liquidità'}
+            </span>
+          </div>
           <p className="text-muted text-xs mt-0.5">
             Entro {format(parseISO(goal.target_date), 'd MMM yyyy', { locale: it })}
             {!achieved && !abandoned && daysLeft >= 0 && (
@@ -185,16 +198,17 @@ function GoalCard({
         </div>
       </div>
 
+      {/* Progress bar */}
       <div className="flex items-center gap-3">
         <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all duration-500 ${achieved ? 'bg-income' : abandoned ? 'bg-white/20' : 'bg-primary'}`}
-            style={{ width: `${pct}%` }}
+            className={`h-full rounded-full transition-all duration-500 ${
+              achieved ? 'bg-income' : abandoned ? 'bg-white/20' : 'bg-primary'
+            }`}
+            style={{ width: `${progressPct}%` }}
           />
         </div>
-        <p className="tabular-nums text-xs text-muted shrink-0">
-          {fmt(goal.current_amount)} / {fmt(goal.target_amount)}
-        </p>
+        <p className="tabular-nums text-xs text-muted shrink-0">{progressLabel}</p>
       </div>
     </div>
   )

@@ -10,7 +10,8 @@ from app.services.auth import create_access_token, hash_password, verify_passwor
 
 router = APIRouter()
 
-
+######Register#####
+###################
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
@@ -21,7 +22,8 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.flush()
     return Token(access_token=create_access_token(str(user.id)))
 
-
+######Login########
+###################
 @router.post("/login", response_model=Token)
 async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
@@ -30,7 +32,8 @@ async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return Token(access_token=create_access_token(str(user.id)))
 
-
+######Current_user#####
+###################
 @router.get("/me", response_model=UserRead)
 async def me(current_user: User = Depends(get_current_user)):
     return current_user
