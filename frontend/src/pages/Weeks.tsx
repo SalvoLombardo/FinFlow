@@ -162,10 +162,11 @@ function WeekCard({
   const startFmt = format(parseISO(week.week_start), 'd MMM', { locale: it })
   const endFmt   = format(parseISO(week.week_end), 'd MMM yyyy', { locale: it })
 
-  // Button shown at the bottom of every card
+  // Label/button shown at the bottom of every card
   const addButton = hasId ? (
-    // Card is a Link — this span is just a label that gets clicked via the Link wrapper
     <span className="text-xs text-primary">+ Aggiungi transazione</span>
+  ) : isProjected ? (
+    <span className="text-xs text-muted">→ Vedi previsione dettagliata</span>
   ) : (
     <button
       onClick={(e) => {
@@ -184,9 +185,9 @@ function WeekCard({
       className={[
         'bg-surface rounded-2xl p-4 border transition-colors',
         isProjected
-          ? 'border-dashed border-white/20 hover:bg-white/[0.03]'
+          ? 'border-dashed border-white/20 hover:bg-white/[0.03] cursor-pointer'
           : isCurrent
-            ? 'border-primary/30 hover:bg-white/5'
+            ? 'border-primary/30 hover:bg-white/5 cursor-pointer'
             : 'border-white/5 hover:bg-white/5',
         hasId ? 'cursor-pointer' : '',
       ].join(' ')}
@@ -246,6 +247,9 @@ function WeekCard({
 
   if (hasId) {
     return <Link to={`/weeks/${week.week_id}`}>{content}</Link>
+  }
+  if (isProjected) {
+    return <Link to={`/weeks/projected?week_start=${week.week_start}`}>{content}</Link>
   }
   return content
 }

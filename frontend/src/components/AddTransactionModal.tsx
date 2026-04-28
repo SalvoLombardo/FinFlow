@@ -32,12 +32,14 @@ interface Props {
   defaultDate?: string
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Called after the transaction is successfully saved (after modal closes). */
+  onSuccess?: () => void
 }
 
 const FIELD =
   'w-full bg-bg border border-white/10 rounded-xl px-3 py-2 text-sm text-text placeholder-muted focus:outline-none focus:border-primary transition-colors'
 
-export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }: Props) {
+export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange, onSuccess }: Props) {
   const qc = useQueryClient()
 
   const [name, setName]           = useState('')
@@ -135,7 +137,7 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange }:
       qc.invalidateQueries({ queryKey: ['weeks'] })
     },
 
-    onSuccess: () => handleOpenChange(false),
+    onSuccess: () => { handleOpenChange(false); onSuccess?.() },
   })
 
   const handleSubmit = (e: React.FormEvent) => {
