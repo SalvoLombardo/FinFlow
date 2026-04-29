@@ -168,11 +168,24 @@ function GridView({
   const today = new Date().toISOString().slice(0, 10)
   return (
     <div className="space-y-3">
-      {weeks.map((w) => {
+      {weeks.map((w, idx) => {
         const isCur = w.week_start <= today && today <= w.week_end
+        const month = format(parseISO(w.week_start), 'MMMM yyyy', { locale: it })
+        const prevMonth = idx > 0
+          ? format(parseISO(weeks[idx - 1].week_start), 'MMMM yyyy', { locale: it })
+          : null
+        const showMonthHeader = month !== prevMonth
         return (
-          <div key={w.week_start} ref={isCur ? currentWeekRef : undefined}>
-            <WeekCard week={w} onAddTransaction={onAddTransaction} />
+          <div key={w.week_start}>
+            {showMonthHeader && (
+              <div className={`flex items-center gap-3 mb-1 ${idx > 0 ? 'mt-5' : ''}`}>
+                <span className="text-xs font-medium text-muted capitalize">{month}</span>
+                <div className="flex-1 h-px bg-white/10" />
+              </div>
+            )}
+            <div ref={isCur ? currentWeekRef : undefined}>
+              <WeekCard week={w} onAddTransaction={onAddTransaction} />
+            </div>
           </div>
         )
       })}
@@ -221,7 +234,7 @@ function WeekCard({
         isProjected
           ? 'bg-surface border-dashed border-white/20 hover:bg-white/[0.03] cursor-pointer'
           : isCurrent
-            ? 'bg-primary/[0.04] border-primary/50 shadow-[0_0_0_1px_rgba(99,102,241,0.15)] hover:bg-primary/[0.07] cursor-pointer'
+            ? 'bg-primary/[0.08] border-primary shadow-[0_0_24px_rgba(99,102,241,0.18)] hover:bg-primary/[0.11] cursor-pointer'
             : 'bg-surface border-white/5 hover:bg-white/5',
         hasId ? 'cursor-pointer' : '',
       ].join(' ')}
