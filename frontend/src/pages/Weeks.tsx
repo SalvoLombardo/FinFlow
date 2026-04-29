@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { format, parseISO, getISOWeek } from 'date-fns'
@@ -43,18 +43,33 @@ function fmt(n: number) {
 
 export function Weeks() {
   const [params, setParams] = useSearchParams()
-  // addModalDate: week_start of the projected card requesting a new transaction
   const [addModalDate, setAddModalDate] = useState<string | null>(null)
+  const [isCurrentVisible, setIsCurrentVisible] = useState(true)
+  const currentWeekRef = useRef<HTMLDivElement | null>(null)
 
   const view     = params.get('view')     ?? 'list'
   const range    = parseInt(params.get('range') ?? '12', 10)
   const category = params.get('category') ?? null
 
-  // Single fetch for both views — range param controls how many weeks the backend returns
   const { data: weeks = [], isLoading } = useQuery<Week[]>({
     queryKey: ['weeks', range],
     queryFn: () => api.get('/weeks', { params: { range } }).then((r) => r.data),
   })
+
+  // Track whether the current week card is in the viewport
+  useEffect(() => {
+    const el = currentWeekRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setIsCurrentVisible(entry.isIntersecting),
+      { threshold: 0.1 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [weeks])
+
+  const scrollToCurrent = () =>
+    currentWeekRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 
   const setView = (v: string) =>
     setParams((p) => { p.set('view', v); return p })
@@ -93,13 +108,24 @@ export function Weeks() {
           {[1, 2, 3].map((i) => <div key={i} className="h-40 bg-surface rounded-2xl" />)}
         </div>
       ) : view === 'list' ? (
-        <GridView weeks={weeks} onAddTransaction={setAddModalDate} />
+        <GridView weeks={weeks} onAddTransaction={setAddModalDate} currentWeekRef={currentWeekRef} />
       ) : (
         <AnalyticsView
           weeks={weeks}
           activeCategory={category}
           onCategoryChange={setCategory}
         />
+      )}
+
+      {/* Scroll-to-current button — visible only when current week is off-screen */}
+      {view === 'list' && !isCurrentVisible && (
+        <button
+          onClick={scrollToCurrent}
+          className="fixed bottom-6 right-6 flex items-center gap-2 px-3 py-2 bg-surface border border-primary/40 text-primary text-xs font-medium rounded-xl shadow-lg hover:bg-primary/10 transition-colors z-20"
+        >
+          <span className="text-base leading-none">◎</span>
+          Settimana corrente
+        </button>
       )}
     </div>
   )
@@ -130,18 +156,26 @@ function ViewTab({
 function GridView({
   weeks,
   onAddTransaction,
+  currentWeekRef,
 }: {
   weeks: Week[]
   onAddTransaction: (weekStart: string) => void
+  currentWeekRef: React.RefObject<HTMLDivElement | null>
 }) {
   if (weeks.length === 0) {
     return <p className="text-muted text-sm text-center py-12">Nessuna settimana trovata.</p>
   }
+  const today = new Date().toISOString().slice(0, 10)
   return (
     <div className="space-y-3">
-      {weeks.map((w) => (
-        <WeekCard key={w.week_start} week={w} onAddTransaction={onAddTransaction} />
-      ))}
+      {weeks.map((w) => {
+        const isCur = w.week_start <= today && today <= w.week_end
+        return (
+          <div key={w.week_start} ref={isCur ? currentWeekRef : undefined}>
+            <WeekCard week={w} onAddTransaction={onAddTransaction} />
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -183,12 +217,12 @@ function WeekCard({
   const content = (
     <div
       className={[
-        'bg-surface rounded-2xl p-4 border transition-colors',
+        'rounded-2xl p-4 border transition-colors',
         isProjected
-          ? 'border-dashed border-white/20 hover:bg-white/[0.03] cursor-pointer'
+          ? 'bg-surface border-dashed border-white/20 hover:bg-white/[0.03] cursor-pointer'
           : isCurrent
-            ? 'border-primary/30 hover:bg-white/5 cursor-pointer'
-            : 'border-white/5 hover:bg-white/5',
+            ? 'bg-primary/[0.04] border-primary/50 shadow-[0_0_0_1px_rgba(99,102,241,0.15)] hover:bg-primary/[0.07] cursor-pointer'
+            : 'bg-surface border-white/5 hover:bg-white/5',
         hasId ? 'cursor-pointer' : '',
       ].join(' ')}
     >
