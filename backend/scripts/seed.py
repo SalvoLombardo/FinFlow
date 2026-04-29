@@ -5,6 +5,7 @@ Run inside the backend container:
     docker compose exec backend python scripts/seed.py
 """
 import asyncio
+import calendar
 import sys
 import uuid
 from datetime import date, timedelta
@@ -28,7 +29,6 @@ from app.services.auth import hash_password
 DEMO_EMAIL = "admin@admin.com"
 DEMO_PASSWORD = "Prova1234@"
 
-# Starting balance and date — the user's financial baseline.
 INITIAL_BALANCE = Decimal("3500.00")
 INITIAL_DATE = date.today() - timedelta(weeks=10)
 
@@ -37,125 +37,149 @@ def _monday(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def _add_months(d: date, months: int) -> date:
+    """Add `months` months to a date, clamping to the last day of the target month."""
+    m = d.month - 1 + months
+    y = d.year + m // 12
+    m = m % 12 + 1
+    last = calendar.monthrange(y, m)[1]
+    return d.replace(year=y, month=m, day=min(d.day, last))
+
+
 # ---------------------------------------------------------------------------
-# Week definitions: weeks_back=0 → current week, 1 → last week, etc.
-# Transactions: (name, amount, type, category, is_recurring, recurrence_rule)
+# Pre-compute end dates for demo recurring transactions (all relative to today).
+# ---------------------------------------------------------------------------
+_TODAY = date.today()
+_CURRENT_MONDAY = _monday(_TODAY)
+
+# "Regalo mensile Marco" — started ~1 week ago, stops at end of current year.
+_GIFT_END = date(_TODAY.year, 12, 31)
+
+# "Rata finanziamento PC" — started ~2 weeks ago, 12 installments at M:1.
+_LOAN_START = _CURRENT_MONDAY - timedelta(weeks=2) + timedelta(days=1)
+_LOAN_END = _add_months(_LOAN_START, 11)  # 12th and last installment
+
+
+# ---------------------------------------------------------------------------
+# Week definitions.
+# Tuple: (name, amount, type, category, is_recurring, recurrence_rule, recurrence_end_date)
 # ---------------------------------------------------------------------------
 _WEEKS: list[dict] = [
     {
         "weeks_back": 9,
         "transactions": [
-            ("Stipendio mensile",    Decimal("2200.00"), "income",  "salary",        True,  "M:1"),
-            ("Affitto",              Decimal("800.00"),  "expense", "housing",       True,  "M:1"),
-            ("Spesa supermercato",   Decimal("148.50"),  "expense", "food",          True,  "W:1"),
-            ("Bolletta elettricità", Decimal("92.40"),   "expense", "utilities",     False, None),
-            ("Internet fibra",       Decimal("30.00"),   "expense", "utilities",     True,  "M:1"),
-            ("Telefono mobile",      Decimal("14.99"),   "expense", "utilities",     True,  "M:1"),
+            ("Stipendio mensile",    Decimal("2200.00"), "income",  "salary",        True,  "M:1", None),
+            ("Affitto",              Decimal("800.00"),  "expense", "housing",       True,  "M:1", None),
+            ("Spesa supermercato",   Decimal("148.50"),  "expense", "food",          True,  "W:1", None),
+            ("Bolletta elettricità", Decimal("92.40"),   "expense", "utilities",     False, None,  None),
+            ("Internet fibra",       Decimal("30.00"),   "expense", "utilities",     True,  "M:1", None),
+            ("Telefono mobile",      Decimal("14.99"),   "expense", "utilities",     True,  "M:1", None),
         ],
     },
     {
         "weeks_back": 8,
         "transactions": [
-            ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None),
-            ("Spesa supermercato",       Decimal("142.80"), "expense", "food",          True,  "W:1"),
-            ("Ristorante",               Decimal("67.50"),  "expense", "dining",        False, None),
-            ("Benzina",                  Decimal("52.00"),  "expense", "transport",     False, None),
-            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1"),
-            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1"),
+            ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None,  None),
+            ("Spesa supermercato",       Decimal("142.80"), "expense", "food",          True,  "W:1", None),
+            ("Ristorante",               Decimal("67.50"),  "expense", "dining",        False, None,  None),
+            ("Benzina",                  Decimal("52.00"),  "expense", "transport",     False, None,  None),
+            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1", None),
+            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1", None),
         ],
     },
     {
         "weeks_back": 7,
         "transactions": [
-            ("Spesa supermercato",    Decimal("156.20"), "expense", "food",      True,  "W:1"),
-            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "M:1"),
-            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "M:1"),
-            ("Farmacia",              Decimal("34.80"),  "expense", "health",    False, None),
+            ("Spesa supermercato",    Decimal("156.20"), "expense", "food",      True,  "W:1", None),
+            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "M:1", None),
+            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "M:1", None),
+            ("Farmacia",              Decimal("34.80"),  "expense", "health",    False, None,  None),
         ],
     },
     {
         "weeks_back": 6,
         "transactions": [
-            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",     True,  "M:1"),
-            ("Dividendi ETF",      Decimal("80.00"),   "income",  "investment", False, None),
-            ("Affitto",            Decimal("800.00"),  "expense", "housing",    True,  "M:1"),
-            ("Spesa supermercato", Decimal("161.30"),  "expense", "food",       True,  "W:1"),
-            ("Bolletta gas",       Decimal("74.60"),   "expense", "utilities",  False, None),
-            ("Internet fibra",     Decimal("30.00"),   "expense", "utilities",  True,  "M:1"),
-            ("Telefono mobile",    Decimal("14.99"),   "expense", "utilities",  True,  "M:1"),
+            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",     True,  "M:1", None),
+            ("Dividendi ETF",      Decimal("80.00"),   "income",  "investment", False, None,  None),
+            ("Affitto",            Decimal("800.00"),  "expense", "housing",    True,  "M:1", None),
+            ("Spesa supermercato", Decimal("161.30"),  "expense", "food",       True,  "W:1", None),
+            ("Bolletta gas",       Decimal("74.60"),   "expense", "utilities",  False, None,  None),
+            ("Internet fibra",     Decimal("30.00"),   "expense", "utilities",  True,  "M:1", None),
+            ("Telefono mobile",    Decimal("14.99"),   "expense", "utilities",  True,  "M:1", None),
         ],
     },
     {
         "weeks_back": 5,
         "transactions": [
-            ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None),
-            ("Spesa supermercato",       Decimal("148.90"), "expense", "food",          True,  "W:1"),
-            ("Ristorante",               Decimal("82.00"),  "expense", "dining",        False, None),
-            ("Abbigliamento",            Decimal("124.50"), "expense", "shopping",      False, None),
-            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1"),
-            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1"),
+            ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None,  None),
+            ("Spesa supermercato",       Decimal("148.90"), "expense", "food",          True,  "W:1", None),
+            ("Ristorante",               Decimal("82.00"),  "expense", "dining",        False, None,  None),
+            ("Abbigliamento",            Decimal("124.50"), "expense", "shopping",      False, None,  None),
+            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1", None),
+            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1", None),
         ],
     },
     {
         "weeks_back": 4,
         "transactions": [
-            ("Spesa supermercato",    Decimal("151.40"), "expense", "food",      True,  "W:1"),
-            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "M:1"),
-            ("Benzina",               Decimal("56.80"),  "expense", "transport", False, None),
-            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "M:1"),
-            ("Farmacia",              Decimal("22.50"),  "expense", "health",    False, None),
+            ("Spesa supermercato",    Decimal("151.40"), "expense", "food",      True,  "W:1", None),
+            ("Abbonamento palestra",  Decimal("40.00"),  "expense", "health",    True,  "M:1", None),
+            ("Benzina",               Decimal("56.80"),  "expense", "transport", False, None,  None),
+            ("Abbonamento trasporti", Decimal("60.00"),  "expense", "transport", True,  "M:1", None),
+            ("Farmacia",              Decimal("22.50"),  "expense", "health",    False, None,  None),
         ],
     },
     {
         "weeks_back": 3,
         "transactions": [
-            ("Stipendio mensile",        Decimal("2200.00"), "income",  "salary",        True,  "M:1"),
-            ("Rimborso spese aziendali", Decimal("150.00"),  "income",  "work",          False, None),
-            ("Affitto",                  Decimal("800.00"),  "expense", "housing",       True,  "M:1"),
-            ("Spesa supermercato",       Decimal("162.70"),  "expense", "food",          True,  "W:1"),
-            ("Bolletta elettricità",     Decimal("87.20"),   "expense", "utilities",     False, None),
-            ("Internet fibra",           Decimal("30.00"),   "expense", "utilities",     True,  "M:1"),
-            ("Telefono mobile",          Decimal("14.99"),   "expense", "utilities",     True,  "M:1"),
-            ("Netflix",                  Decimal("17.99"),   "expense", "entertainment", True,  "M:1"),
-            ("Spotify",                  Decimal("10.99"),   "expense", "entertainment", True,  "M:1"),
+            ("Stipendio mensile",        Decimal("2200.00"), "income",  "salary",        True,  "M:1", None),
+            ("Rimborso spese aziendali", Decimal("150.00"),  "income",  "work",          False, None,  None),
+            ("Affitto",                  Decimal("800.00"),  "expense", "housing",       True,  "M:1", None),
+            ("Spesa supermercato",       Decimal("162.70"),  "expense", "food",          True,  "W:1", None),
+            ("Bolletta elettricità",     Decimal("87.20"),   "expense", "utilities",     False, None,  None),
+            ("Internet fibra",           Decimal("30.00"),   "expense", "utilities",     True,  "M:1", None),
+            ("Telefono mobile",          Decimal("14.99"),   "expense", "utilities",     True,  "M:1", None),
+            ("Netflix",                  Decimal("17.99"),   "expense", "entertainment", True,  "M:1", None),
+            ("Spotify",                  Decimal("10.99"),   "expense", "entertainment", True,  "M:1", None),
         ],
     },
     {
         "weeks_back": 2,
+        # Demo: "Rata finanziamento PC" — 12 rate M:1, finisce in ~10 mesi.
         "transactions": [
-            ("Dividendi ETF",        Decimal("80.00"),  "income",  "investment",    False, None),
-            ("Spesa supermercato",   Decimal("149.80"), "expense", "food",          True,  "W:1"),
-            ("Ristorante",           Decimal("58.50"),  "expense", "dining",        False, None),
-            ("Abbonamento palestra", Decimal("40.00"),  "expense", "health",        True,  "M:1"),
-            ("Benzina",              Decimal("47.60"),  "expense", "transport",     False, None),
-            ("Farmacia",             Decimal("16.80"),  "expense", "health",        False, None),
+            ("Dividendi ETF",        Decimal("80.00"),  "income",  "investment",    False, None,  None),
+            ("Spesa supermercato",   Decimal("149.80"), "expense", "food",          True,  "W:1", None),
+            ("Ristorante",           Decimal("58.50"),  "expense", "dining",        False, None,  None),
+            ("Abbonamento palestra", Decimal("40.00"),  "expense", "health",        True,  "M:1", None),
+            ("Benzina",              Decimal("47.60"),  "expense", "transport",     False, None,  None),
+            ("Farmacia",             Decimal("16.80"),  "expense", "health",        False, None,  None),
+            ("Rata finanziamento PC",Decimal("85.00"),  "expense", "loan",          True,  "M:1", _LOAN_END),
         ],
     },
     {
         "weeks_back": 1,
+        # Demo: "Regalo mensile Marco" — M:1, finisce il 31/12 dell'anno in corso.
         "transactions": [
-            ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None),
-            ("Spesa supermercato",       Decimal("157.40"), "expense", "food",          True,  "W:1"),
-            ("Abbonamento trasporti",    Decimal("60.00"),  "expense", "transport",     True,  "M:1"),
-            ("Abbigliamento",            Decimal("89.00"),  "expense", "shopping",      False, None),
-            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1"),
-            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1"),
+            ("Rimborso spese aziendali", Decimal("150.00"), "income",  "work",          False, None,       None),
+            ("Spesa supermercato",       Decimal("157.40"), "expense", "food",          True,  "W:1",      None),
+            ("Abbonamento trasporti",    Decimal("60.00"),  "expense", "transport",     True,  "M:1",      None),
+            ("Abbigliamento",            Decimal("89.00"),  "expense", "shopping",      False, None,       None),
+            ("Netflix",                  Decimal("17.99"),  "expense", "entertainment", True,  "M:1",      None),
+            ("Spotify",                  Decimal("10.99"),  "expense", "entertainment", True,  "M:1",      None),
+            ("Regalo mensile Marco",     Decimal("50.00"),  "expense", "gifts",         True,  "M:1",      _GIFT_END),
         ],
     },
     # Current week — still open, partial transactions.
     {
         "weeks_back": 0,
         "transactions": [
-            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",  True,  "M:1"),
-            ("Affitto",            Decimal("800.00"),  "expense", "housing", True,  "M:1"),
-            ("Spesa supermercato", Decimal("118.60"),  "expense", "food",    True,  "W:1"),
+            ("Stipendio mensile",  Decimal("2200.00"), "income",  "salary",  True,  "M:1", None),
+            ("Affitto",            Decimal("800.00"),  "expense", "housing", True,  "M:1", None),
+            ("Spesa supermercato", Decimal("118.60"),  "expense", "food",    True,  "W:1", None),
         ],
     },
 ]
 
-# Goals use real semantics:
-#   liquidity → target is a minimum balance to reach by the date
-#   savings   → target is an amount to accumulate from baseline
 _GOALS = [
     {
         "name": "Fondo d'emergenza",
@@ -235,7 +259,7 @@ async def seed_database() -> None:
             session.add(week)
             await session.flush()
 
-            for name, amount, tx_type, category, is_recurring, recurrence_rule in week_def["transactions"]:
+            for name, amount, tx_type, category, is_recurring, recurrence_rule, recurrence_end_date in week_def["transactions"]:
                 session.add(Transaction(
                     id=uuid.uuid4(),
                     user_id=user.id,
@@ -246,14 +270,13 @@ async def seed_database() -> None:
                     category=category,
                     is_recurring=is_recurring,
                     recurrence_rule=recurrence_rule,
+                    recurrence_end_date=recurrence_end_date,
                     transaction_date=week_start + timedelta(days=1),
                 ))
 
             if not is_current:
                 running_balance = running_balance + net
 
-        # current_balance is the opening of the current week
-        # (closing not yet set since the week is still open)
         current_balance = running_balance
 
         # --- Goals ---
@@ -279,13 +302,18 @@ async def seed_database() -> None:
     await engine.dispose()
 
     total_txs = sum(len(w["transactions"]) for w in _WEEKS)
+    with_end_date = sum(
+        1 for w in _WEEKS for tx in w["transactions"] if tx[6] is not None
+    )
     print("Seed complete.")
-    print(f"  User:            {DEMO_EMAIL} / {DEMO_PASSWORD}")
-    print(f"  Weeks:           {len(_WEEKS)} ({len(_WEEKS) - 1} past + 1 current)")
-    print(f"  Transactions:    {total_txs}")
-    print(f"  Goals:           {len(_GOALS)}")
-    print(f"  Initial balance: €{INITIAL_BALANCE}")
-    print(f"  Current opening: €{current_balance}")
+    print(f"  User:             {DEMO_EMAIL} / {DEMO_PASSWORD}")
+    print(f"  Weeks:            {len(_WEEKS)} ({len(_WEEKS) - 1} past + 1 current)")
+    print(f"  Transactions:     {total_txs} ({with_end_date} with recurrence_end_date)")
+    print(f"  Goals:            {len(_GOALS)}")
+    print(f"  Initial balance:  €{INITIAL_BALANCE}")
+    print(f"  Current opening:  €{current_balance}")
+    print(f"  Loan end date:    {_LOAN_END}  (Rata finanziamento PC)")
+    print(f"  Gift end date:    {_GIFT_END}  (Regalo mensile Marco)")
 
 
 if __name__ == "__main__":

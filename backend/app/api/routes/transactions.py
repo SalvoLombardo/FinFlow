@@ -100,7 +100,7 @@ async def update_transaction(
     before = TransactionRead.model_validate(tx).model_dump(mode="json")
 
     # If the date changes, move the transaction to the correct week.
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     if "transaction_date" in updates:
         week = await get_or_create_week(current_user.id, updates["transaction_date"], db)
         tx.week_id = week.id

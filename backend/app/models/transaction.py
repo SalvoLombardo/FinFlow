@@ -27,6 +27,7 @@ class Transaction(Base):
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
     recurrence_rule: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    recurrence_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     transaction_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), default=datetime.utcnow)

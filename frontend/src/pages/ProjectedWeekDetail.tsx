@@ -5,6 +5,8 @@ import { format, parseISO, getISOWeek } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { api } from '../api/client'
 import { AddTransactionModal } from '../components/AddTransactionModal'
+import { EditRecurringModal } from '../components/EditRecurringModal'
+import type { RecurringTx } from '../components/EditRecurringModal'
 
 interface ProjectedTransaction {
   id: string
@@ -50,6 +52,7 @@ export function ProjectedWeekDetail() {
   const weekStart = searchParams.get('week_start') ?? ''
 
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [editingTx, setEditingTx]       = useState<RecurringTx | null>(null)
 
   const { data, isLoading, isError } = useQuery<ProjectedWeekDetail>({
     queryKey: ['projected-week', weekStart],
@@ -180,11 +183,17 @@ export function ProjectedWeekDetail() {
                   </p>
                 </div>
 
-                {/* "Modifica ricorrente" — Parte B */}
                 <button
-                  disabled
-                  title="Disponibile nella prossima versione"
-                  className="text-xs text-muted/40 cursor-not-allowed flex-shrink-0"
+                  onClick={() => setEditingTx({
+                    id: tx.id,
+                    name: tx.name,
+                    amount: tx.amount,
+                    type: tx.type,
+                    category: tx.category,
+                    recurrence_rule: tx.recurrence_rule,
+                    recurrence_end_date: tx.recurrence_end_date,
+                  })}
+                  className="text-xs text-primary hover:text-primary/80 transition-colors flex-shrink-0"
                 >
                   Modifica
                 </button>
@@ -205,6 +214,14 @@ export function ProjectedWeekDetail() {
         open={addModalOpen}
         onOpenChange={setAddModalOpen}
         onSuccess={() => navigate('/weeks')}
+      />
+
+      {/* EditRecurringModal — edits the source recurring transaction */}
+      <EditRecurringModal
+        transaction={editingTx}
+        weekStart={weekStart}
+        open={editingTx !== null}
+        onOpenChange={(open) => { if (!open) setEditingTx(null) }}
       />
     </div>
   )

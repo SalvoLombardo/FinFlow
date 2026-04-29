@@ -14,6 +14,7 @@ class TransactionCreate(BaseModel):
     category: str | None = None
     is_recurring: bool = False
     recurrence_rule: str | None = None
+    recurrence_end_date: date | None = None
     # The backend derives the week from this date; defaults to today if omitted.
     transaction_date: date | None = None
     notes: str | None = None
@@ -29,6 +30,7 @@ class TransactionRead(BaseModel):
     category: str | None
     is_recurring: bool
     recurrence_rule: str | None
+    recurrence_end_date: date | None
     transaction_date: date | None
     notes: str | None
     created_at: datetime
@@ -43,5 +45,6 @@ class TransactionUpdate(BaseModel):
     category: str | None = None
     is_recurring: bool | None = None
     recurrence_rule: str | None = None
+    recurrence_end_date: date | None = None
     transaction_date: date | None = None
     notes: str | None = None

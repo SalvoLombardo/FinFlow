@@ -65,6 +65,11 @@ def _parse_rule(rule: str | None) -> tuple[str, int]:
 
 def _should_apply_in_week(tx: Transaction, target_monday: date) -> bool:
     """True if tx should appear in the projected week starting at target_monday."""
+    if tx.recurrence_end_date is not None:
+        end_monday = week_monday(tx.recurrence_end_date)
+        if target_monday > end_monday:
+            return False
+
     unit, interval = _parse_rule(tx.recurrence_rule)
     origin = tx.transaction_date or tx.created_at.date()
     origin_monday = week_monday(origin)

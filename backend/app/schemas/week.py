@@ -4,6 +4,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
+from app.models.transaction import TransactionType
+
 
 class WeekSummary(BaseModel):
     """Returned by GET /weeks (list) and used for the projection view."""
@@ -36,3 +38,25 @@ class WeekRead(BaseModel):
 class WeekUpdate(BaseModel):
     """Only notes are editable by the user; balance is always computed."""
     notes: str | None = None
+
+
+class ProjectedTransaction(BaseModel):
+    """A recurring transaction projected into a future week (not stored in DB)."""
+    id: uuid.UUID
+    name: str
+    amount: float
+    type: TransactionType
+    category: str | None
+    recurrence_rule: str | None
+    recurrence_end_date: date | None
+
+
+class ProjectedWeekDetail(BaseModel):
+    """Returned by GET /weeks/projected — full snapshot of a virtual future week."""
+    week_start: date
+    week_end: date
+    opening_balance: float
+    closing_balance: float
+    total_income: float
+    total_expense: float
+    transactions: list[ProjectedTransaction]

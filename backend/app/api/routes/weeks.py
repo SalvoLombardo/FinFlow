@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -9,8 +9,12 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.user import User
 from app.models.week import FinancialWeek
-from app.schemas.week import WeekRead, WeekSummary, WeekUpdate
-from app.services.projection import calculate_projection
+from app.schemas.week import ProjectedTransaction, ProjectedWeekDetail, WeekRead, WeekSummary, WeekUpdate
+from app.services.projection import (
+    _fetch_canonical_recurring,
+    _should_apply_in_week,
+    calculate_projection,
+)
 from app.services.weeks import week_monday
 
 router = APIRouter()
@@ -45,6 +49,58 @@ async def list_weeks(
         )
         for s in summaries
     ]
+
+
+@router.get("/projected", response_model=ProjectedWeekDetail)
+async def get_projected_week(
+    week_start: date = Query(..., description="Monday of the target future week (YYYY-MM-DD)."),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    target_monday = week_monday(week_start)
+    today_monday = week_monday(date.today())
+
+    if target_monday <= today_monday:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="week_start must be in the future (strictly after the current week).",
+        )
+
+    n_forward = (target_monday - today_monday).days // 7
+    summaries = await calculate_projection(
+        user_id=current_user.id,
+        n_weeks_back=0,
+        n_weeks_forward=n_forward,
+        db=db,
+    )
+
+    target = next((s for s in summaries if s.week_start == target_monday), None)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Projected week not found.")
+
+    recurring_txs = await _fetch_canonical_recurring(current_user.id, db)
+    applicable = [t for t in recurring_txs if _should_apply_in_week(t, target_monday)]
+
+    return ProjectedWeekDetail(
+        week_start=target.week_start,
+        week_end=target.week_start + timedelta(days=6),
+        opening_balance=float(target.opening_balance),
+        closing_balance=float(target.closing_balance),
+        total_income=float(target.total_income),
+        total_expense=float(target.total_expense),
+        transactions=[
+            ProjectedTransaction(
+                id=t.id,
+                name=t.name,
+                amount=float(t.amount),
+                type=t.type,
+                category=t.category,
+                recurrence_rule=t.recurrence_rule,
+                recurrence_end_date=t.recurrence_end_date,
+            )
+            for t in applicable
+        ],
+    )
 
 
 @router.get("/{week_id}", response_model=WeekRead)
