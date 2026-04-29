@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 
 interface TransactionCreate {
@@ -42,10 +42,33 @@ const FIELD =
 export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange, onSuccess }: Props) {
   const qc = useQueryClient()
 
+  // Compute slot once per render (stable within the same hour)
+  const now        = new Date()
+  const currentDow  = now.getDay()   // 0=Sunday … 6=Saturday — matches PostgreSQL EXTRACT(DOW)
+  const currentHour = now.getHours()
+
+  const { data: suggestions = [] } = useQuery<string[]>({
+    queryKey: ['suggest-category', currentDow, currentHour],
+    queryFn: () =>
+      api
+        .get('/transactions/suggest-category', { params: { dow: currentDow, hour: currentHour } })
+        .then((r) => r.data.suggestions),
+    enabled: open,
+    staleTime: 60 * 60 * 1000, // cache for the current hour slot
+  })
+
+  const { data: allCategories = [] } = useQuery<string[]>({
+    queryKey: ['categories'],
+    queryFn: () => api.get('/transactions/categories').then((r) => r.data.categories),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  })
+
   const [name, setName]           = useState('')
   const [amount, setAmount]       = useState('')
   const [type, setType]           = useState<'income' | 'expense'>('expense')
   const [category, setCategory]   = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
   const [date, setDate]           = useState('')
   const [recurring, setRecurring]               = useState(false)
   const [recurrenceRule, setRecurrenceRule]     = useState<string>('M:1')
@@ -140,7 +163,7 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange, o
     onSuccess: () => { handleOpenChange(false); onSuccess?.() },
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const parsed = parseFloat(amount)
     if (!name.trim() || isNaN(parsed) || parsed <= 0) {
@@ -212,15 +235,54 @@ export function AddTransactionModal({ weekId, defaultDate, open, onOpenChange, o
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 items-start">
               <div>
                 <label className="text-xs text-muted block mb-1">Categoria</label>
-                <input
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="es. Alimentari"
-                  className={FIELD}
-                />
+                {/* Contextual chips — visible only before the user starts typing */}
+                {category === '' && suggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-1.5">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setCategory(s)}
+                        className="px-2 py-0.5 rounded-full text-[11px] bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25 transition-colors"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Input + contains-match dropdown for previously used categories */}
+                <div className="relative">
+                  <input
+                    value={category}
+                    onChange={(e) => { setCategory(e.target.value); setShowDropdown(true) }}
+                    onFocus={() => { if (category.length >= 2) setShowDropdown(true) }}
+                    onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                    placeholder="es. Alimentari"
+                    className={FIELD}
+                  />
+                  {showDropdown && category.length >= 2 && (() => {
+                    const matches = allCategories.filter((c) =>
+                      c.toLowerCase().includes(category.toLowerCase())
+                    )
+                    return matches.length > 0 ? (
+                      <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-surface border border-white/10 rounded-xl overflow-hidden shadow-lg">
+                        {matches.slice(0, 6).map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onMouseDown={() => { setCategory(c); setShowDropdown(false) }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 transition-colors"
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
+                </div>
               </div>
               <div>
                 <label className="text-xs text-muted block mb-1">Data</label>

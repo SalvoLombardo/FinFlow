@@ -1,14 +1,16 @@
 import asyncio
+import json
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.audit.kafka_producer import AuditEvent, audit_producer
 from app.core.database import get_db
+from app.core.redis_client import get_redis
 from app.events.schemas import EventType, FinFlowEvent
 from app.messaging.sns_publisher import sns_publisher
 from app.models.transaction import Transaction, TransactionType
@@ -78,6 +80,43 @@ async def create_transaction(
         )
     )
     return tx
+
+
+@router.get("/categories")
+async def list_categories(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return distinct categories used by the user, ordered by frequency (most used first)."""
+    result = await db.execute(
+        select(Transaction.category, func.count().label("freq"))
+        .where(
+            Transaction.user_id == current_user.id,
+            Transaction.category.is_not(None),
+        )
+        .group_by(Transaction.category)
+        .order_by(func.count().desc())
+    )
+    return {"categories": [row.category for row in result.all()]}
+
+
+@router.get("/suggest-category")
+async def suggest_category(
+    dow: int = Query(..., ge=0, le=6, description="Day of week: 0=Sunday … 6=Saturday"),
+    hour: int = Query(..., ge=0, le=23, description="Current hour (0–23)"),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Return up to 3 category suggestions for the given day/hour slot, read from Redis.
+    Returns an empty list if no cached patterns exist yet (new user or cache cold).
+    """
+    r = get_redis()
+    raw = await r.get(f"finflow:patterns:{current_user.id}")
+    if not raw:
+        return {"suggestions": []}
+    patterns = json.loads(raw)
+    slot_key = f"{dow}_{hour // 4}"
+    return {"suggestions": patterns.get(slot_key, [])}
 
 
 @router.put("/{transaction_id}", response_model=TransactionRead)

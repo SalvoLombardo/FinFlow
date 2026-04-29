@@ -7,6 +7,7 @@ app = Celery(
         "celery_app.tasks.month_setup",
         "celery_app.tasks.weekly_report",
         "celery_app.tasks.goal_checker",
+        "celery_app.tasks.category_patterns",
     ],
 )
 app.config_from_object("celery_app.celeryconfig")
@@ -15,6 +16,10 @@ app.conf.beat_schedule = {
     "weekly-report-sunday": {
         "task": "celery_app.tasks.weekly_report.generate_for_all_users",
         "schedule": crontab(hour=20, minute=0, day_of_week=0),
+    },
+    "category-patterns-sunday": {
+        "task": "celery_app.tasks.category_patterns.compute_category_patterns",
+        "schedule": crontab(hour=22, minute=0, day_of_week=0),
     },
     "month-setup-first-day": {
         "task": "celery_app.tasks.month_setup.create_next_month_weeks",

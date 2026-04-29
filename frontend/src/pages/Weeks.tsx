@@ -239,34 +239,41 @@ function WeekCard({
         hasId ? 'cursor-pointer' : '',
       ].join(' ')}
     >
-      {/* Header row */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <p className="text-sm font-medium">
-          Sett.&nbsp;{weekNum}&nbsp;·&nbsp;{startFmt}&nbsp;–&nbsp;{endFmt}
-        </p>
-        {isCurrent && (
-          <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-medium leading-none">
-            CORRENTE
-          </span>
-        )}
-        {isProjected && (
-          <span className="text-[10px] bg-white/5 text-muted px-1.5 py-0.5 rounded-full leading-none">
-            Proiezione
-          </span>
-        )}
-      </div>
-
-      {/* Opening / Closing balances */}
-      <div className="grid grid-cols-2 gap-x-6 mb-3">
-        <div>
-          <p className="text-[10px] text-muted uppercase tracking-wide">Apertura</p>
-          <p className="tabular-nums text-sm">{fmt(week.opening_balance)}</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-muted uppercase tracking-wide">
-            Chiusura{isProjected ? ' *' : ''}
+      {/* Top: title+badges (left) · balance box (right) */}
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <p className="text-sm font-medium truncate">
+            Sett.&nbsp;{weekNum}&nbsp;·&nbsp;{startFmt}&nbsp;–&nbsp;{endFmt}
           </p>
-          <p className="tabular-nums text-sm">{fmt(week.closing_balance)}</p>
+          {(isCurrent || isProjected) && (
+            <div className="flex items-center gap-1.5">
+              {isCurrent && (
+                <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-medium leading-none">
+                  CORRENTE
+                </span>
+              )}
+              {isProjected && (
+                <span className="text-[10px] bg-white/5 text-muted px-1.5 py-0.5 rounded-full leading-none">
+                  Proiezione
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Balance mini-box */}
+        <div className="flex items-center gap-3 bg-black/20 border border-white/10 rounded-xl px-3 py-2 shrink-0">
+          <div className="text-right">
+            <p className="text-[10px] text-muted uppercase tracking-wide leading-none mb-1">Apertura</p>
+            <p className="tabular-nums text-xs font-medium">{fmt(week.opening_balance)}</p>
+          </div>
+          <div className="w-px h-5 bg-white/10" />
+          <div className="text-right">
+            <p className="text-[10px] text-muted uppercase tracking-wide leading-none mb-1">
+              Chiusura{isProjected ? ' *' : ''}
+            </p>
+            <p className="tabular-nums text-xs font-medium">{fmt(week.closing_balance)}</p>
+          </div>
         </div>
       </div>
 
