@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, dashboard, goals, settings as settings_routes, transactions, weeks
+from app.api.routes import auth, dashboard, goals, insights, settings as settings_routes, transactions, weeks
 
 app = FastAPI(title="FinFlow API", version="1.0.0", redirect_slashes=False)
 
@@ -19,6 +19,7 @@ app.include_router(transactions.router, prefix="/api/v1/transactions", tags=["tr
 app.include_router(goals.router, prefix="/api/v1/goals", tags=["goals"])
 app.include_router(settings_routes.router, prefix="/api/v1/settings", tags=["settings"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
+app.include_router(insights.router, prefix="/api/v1/insights", tags=["insights"])
 
 
 @app.get("/health", tags=["system"])

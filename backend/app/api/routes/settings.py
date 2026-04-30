@@ -1,7 +1,7 @@
 from datetime import date
 
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ from app.schemas.settings import (
     FinancialSettingsRead,
     FinancialSettingsUpdate,
 )
+from app.services.ai.service import AIService
 
 router = APIRouter()
 
@@ -66,6 +67,37 @@ async def update_ai_settings(
 
     await db.flush()
     return row
+
+
+@router.post("/ai/test", response_model=dict)
+async def test_ai_settings(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Call the configured AI provider with a fixed test prompt. Returns the raw response."""
+    result = await db.execute(
+        select(UserAISettings).where(UserAISettings.user_id == current_user.id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None or not row.ai_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="AI is not enabled. Enable it in Settings first.",
+        )
+    try:
+        ai = AIService(row)
+        response = await ai.generate_savings_tip(
+            avg_weekly_income=500.0,
+            avg_weekly_expense=400.0,
+            top_categories=[("Spesa", 150.0), ("Trasporti", 80.0)],
+            weeks_analyzed=4,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI provider error: {exc}",
+        )
+    return {"response": response}
 
 
 # ---------------------------------------------------------------------------

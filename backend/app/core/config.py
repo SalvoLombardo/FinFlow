@@ -32,5 +32,8 @@ class Settings(BaseSettings):
     # S3
     S3_AUDIT_BUCKET: str = ""
 
+    # AI rate limiting
+    AI_DAILY_RATE_LIMIT: int = 10
+
 
 settings = Settings()
