@@ -1,8 +1,13 @@
-from openai import AsyncOpenAI
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None  # type: ignore[assignment,misc]
 
 
 class OpenAIProvider:
     def __init__(self, api_key: str, model: str) -> None:
+        if AsyncOpenAI is None:
+            raise ImportError("openai package not available in this environment")
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
 

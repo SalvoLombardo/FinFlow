@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and fill in real values before running terraform apply.
+# terraform.tfvars is in .gitignore — never commit it.
+
+aws_region  = "eu-west-1"
+project     = "finflow"
+environment = "prod"
+
+# Generate: openssl rand -hex 32
+secret_key = "changeme-replace-with-real-value"
+
+# Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+encryption_key = "changeme-replace-with-real-fernet-key"
+
+# Optional — override defaults if needed
+# db_username        = "finflow"
+# vpc_cidr           = "10.0.0.0/16"
+# availability_zones = ["eu-west-1a", "eu-west-1b"]

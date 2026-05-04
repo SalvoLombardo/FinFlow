@@ -1,8 +1,13 @@
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None  # type: ignore[assignment]
 
 
 class GeminiProvider:
     def __init__(self, api_key: str, model: str) -> None:
+        if genai is None:
+            raise ImportError("google-generativeai package not available in this environment")
         genai.configure(api_key=api_key)
         self._model_name = model
 

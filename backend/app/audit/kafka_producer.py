@@ -5,7 +5,10 @@ from typing import Any
 from uuid import uuid4
 
 import orjson
-from aiokafka import AIOKafkaProducer
+try:
+    from aiokafka import AIOKafkaProducer
+except ImportError:
+    AIOKafkaProducer = None  # type: ignore[assignment,misc]
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -38,6 +41,8 @@ class KafkaAuditProducer:
     async def send(self, event: AuditEvent) -> None:
         for attempt in range(_MAX_ATTEMPTS):
             try:
+                if AIOKafkaProducer is None:
+                    raise RuntimeError("aiokafka not available — Kafka audit disabled")
                 producer = AIOKafkaProducer(bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS)
                 await producer.start()
                 try:

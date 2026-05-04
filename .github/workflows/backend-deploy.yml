@@ -1,0 +1,99 @@
+name: Backend Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+  workflow_dispatch:
+
+concurrency:
+  group: backend-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. Run tests ──────────────────────────────────────────────────────────
+  test:
+    name: Pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql+asyncpg://test:test@localhost/test
+      SECRET_KEY: test-secret-key-for-unit-tests-only!!
+      ENCRYPTION_KEY: test-encryption-key-32-characters!!
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        run: pytest
+
+  # ── 2. Build zip and deploy to Lambda ─────────────────────────────────────
+  deploy:
+    name: Build & Deploy Lambda
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: eu-west-1
+      LAMBDA_FUNCTION: finflow-prod-api
+      S3_BUCKET: finflow-prod-lambda-packages
+      S3_KEY: backend/handler.zip
+      HEALTH_URL: https://rjdl454g7e.execute-api.eu-west-1.amazonaws.com/health
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Lambda zip
+        working-directory: backend
+        run: |
+          pip install -r requirements-lambda.txt -t /tmp/lambda_package --quiet
+          cp -r app /tmp/lambda_package/
+          find /tmp/lambda_package -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+          find /tmp/lambda_package -name '*.pyc' -delete 2>/dev/null || true
+          cd /tmp/lambda_package && zip -r /tmp/handler.zip . > /dev/null
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload zip to S3
+        run: aws s3 cp /tmp/handler.zip s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.LAMBDA_FUNCTION }} \
+            --s3-bucket ${{ env.S3_BUCKET }} \
+            --s3-key ${{ env.S3_KEY }} \
+            --output json
+
+      - name: Wait for Lambda update to complete
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ env.LAMBDA_FUNCTION }}
+
+      - name: Smoke test GET /health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.HEALTH_URL }}")
+          if [ "$STATUS" != "200" ]; then
+            echo "Smoke test FAILED: /health returned HTTP $STATUS"
+            exit 1
+          fi
+          echo "Smoke test PASSED: /health returned HTTP $STATUS"

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from mangum import Mangum
 
 from app.api.routes import auth, dashboard, goals, insights, settings as settings_routes, transactions, weeks
 
@@ -25,3 +26,6 @@ app.include_router(insights.router, prefix="/api/v1/insights", tags=["insights"]
 @app.get("/health", tags=["system"])
 async def health():
     return {"status": "ok"}
+
+
+handler = Mangum(app, lifespan="off")
