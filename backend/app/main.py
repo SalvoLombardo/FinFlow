@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from mangum import Mangum
 
 from app.api.routes import auth, dashboard, goals, insights, settings as settings_routes, transactions, weeks
 
@@ -28,4 +27,8 @@ async def health():
     return {"status": "ok"}
 
 
-handler = Mangum(app, lifespan="off")
+try:
+    from mangum import Mangum
+    handler = Mangum(app, lifespan="off")
+except ImportError:
+    handler = None  # not running in Lambda context
