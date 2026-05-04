@@ -1,0 +1,14 @@
+services:
+  celery_worker:
+    build: ./workers
+    command: celery -A celery_app.config worker --loglevel=info
+    env_file: /opt/finflow/.env
+    network_mode: host
+    restart: unless-stopped
+
+  celery_beat:
+    build: ./workers
+    command: celery -A celery_app.config beat --loglevel=info --scheduler redbeat.RedBeatScheduler
+    env_file: /opt/finflow/.env
+    network_mode: host
+    restart: unless-stopped

@@ -1,0 +1,71 @@
+name: Workers Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "workers/**"
+  workflow_dispatch:
+
+concurrency:
+  group: workers-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-and-deploy:
+    name: Test & Deploy to EC2
+    runs-on: ubuntu-latest
+    env:
+      EC2_HOST: 52.16.138.76
+      EC2_USER: ec2-user
+      REMOTE_DIR: /opt/finflow
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Tests ──────────────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: workers/requirements.txt
+
+      - name: Install test dependencies
+        working-directory: workers
+        run: pip install -r requirements.txt pytest pytest-mock
+
+      - name: Run pytest
+        working-directory: workers
+        run: pytest
+
+      # ── Deploy ─────────────────────────────────────────────────────────────
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rsync workers/ to EC2
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/ec2_key" \
+            --exclude '__pycache__' \
+            --exclude '*.pyc' \
+            --exclude 'tests/' \
+            --exclude 'pytest.ini' \
+            workers/ ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:${{ env.REMOTE_DIR }}/workers/
+
+      - name: Rsync docker-compose.workers-prod.yml to EC2
+        run: |
+          rsync -az \
+            -e "ssh -i ~/.ssh/ec2_key" \
+            docker-compose.workers-prod.yml \
+            ${{ env.EC2_USER }}@${{ env.EC2_HOST }}:${{ env.REMOTE_DIR }}/
+
+      - name: Restart Celery containers
+        run: |
+          ssh -i ~/.ssh/ec2_key ${{ env.EC2_USER }}@${{ env.EC2_HOST }} \
+            "cd ${{ env.REMOTE_DIR }} && \
+             docker compose -f docker-compose.workers-prod.yml up -d --build && \
+             docker compose -f docker-compose.workers-prod.yml ps"

@@ -1,0 +1,99 @@
+name: Consumers Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lambda_consumers/**"
+  workflow_dispatch:
+
+concurrency:
+  group: consumers-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: ${{ matrix.consumer.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # deploy remaining consumers even if one fails
+      matrix:
+        consumer:
+          - name: projection-consumer
+            dir: projection_consumer
+            s3_key: lambda_consumers/projection_consumer.zip
+            lambda_fn: finflow-prod-projection-consumer
+            has_tests: false
+          - name: ai-consumer
+            dir: ai_consumer
+            s3_key: lambda_consumers/ai_consumer.zip
+            lambda_fn: finflow-prod-ai-consumer
+            has_tests: true
+          - name: notification-consumer
+            dir: notification_consumer
+            s3_key: lambda_consumers/notification_consumer.zip
+            lambda_fn: finflow-prod-notification-consumer
+            has_tests: false
+
+    env:
+      AWS_REGION: eu-west-1
+      S3_BUCKET: finflow-prod-lambda-packages
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: lambda_consumers/${{ matrix.consumer.dir }}/requirements.txt
+
+      # ── Tests (only ai_consumer has a test suite) ──────────────────────────
+      - name: Install test dependencies
+        if: matrix.consumer.has_tests
+        working-directory: lambda_consumers/${{ matrix.consumer.dir }}
+        run: pip install -r requirements.txt pytest pytest-asyncio pytest-mock
+
+      - name: Run pytest
+        if: matrix.consumer.has_tests
+        working-directory: lambda_consumers/${{ matrix.consumer.dir }}
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost/test
+          ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1jaGFycyE=
+        run: pytest
+
+      # ── Build Lambda zip ───────────────────────────────────────────────────
+      - name: Build Lambda zip
+        run: |
+          CONSUMER_DIR="lambda_consumers/${{ matrix.consumer.dir }}"
+          pip install -r "$CONSUMER_DIR/requirements.txt" -t /tmp/lambda_package --quiet
+          cp "$CONSUMER_DIR"/*.py /tmp/lambda_package/
+          cp lambda_consumers/deps.py /tmp/lambda_package/
+          find /tmp/lambda_package -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+          find /tmp/lambda_package -name '*.pyc' -delete 2>/dev/null || true
+          cd /tmp/lambda_package && zip -r /tmp/consumer.zip . > /dev/null
+
+      # ── Deploy ─────────────────────────────────────────────────────────────
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload zip to S3
+        run: |
+          aws s3 cp /tmp/consumer.zip \
+            s3://${{ env.S3_BUCKET }}/${{ matrix.consumer.s3_key }}
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ matrix.consumer.lambda_fn }} \
+            --s3-bucket ${{ env.S3_BUCKET }} \
+            --s3-key ${{ matrix.consumer.s3_key }} \
+            --output json
+
+      - name: Wait for Lambda update to complete
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ matrix.consumer.lambda_fn }}

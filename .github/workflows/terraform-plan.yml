@@ -1,0 +1,98 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infrastructure/terraform/**"
+
+permissions:
+  contents: read
+  pull-requests: write  # needed to post plan as PR comment
+
+jobs:
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.6"
+
+      # file(pathexpand(var.ssh_public_key_path)) reads this file at plan time
+      - name: Write SSH public key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PUBLIC_KEY }}" > ~/.ssh/finflow.pub
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        env:
+          TF_VAR_secret_key: ${{ secrets.TF_SECRET_KEY }}
+          TF_VAR_encryption_key: ${{ secrets.TF_ENCRYPTION_KEY }}
+        run: |
+          set -o pipefail
+          terraform plan -no-color 2>&1 | tee plan_output.txt
+        continue-on-error: true
+
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infrastructure/terraform/plan_output.txt', 'utf8');
+            const fmtOk = '${{ steps.fmt.outcome }}' === 'success';
+            const planOk = '${{ steps.plan.outcome }}' === 'success';
+
+            const maxLen = 60000;
+            const planBody = plan.length > maxLen
+              ? plan.slice(0, maxLen) + '\n\n... output truncated'
+              : plan;
+
+            const body = [
+              '## Terraform Plan',
+              '',
+              fmtOk ? '✅ `terraform fmt` — OK' : '⚠️ `terraform fmt` — formatting issues found (run `terraform fmt -recursive`)',
+              planOk ? '✅ `terraform plan` — no errors' : '❌ `terraform plan` — failed',
+              '',
+              '<details><summary>Show plan output</summary>',
+              '',
+              '```',
+              planBody,
+              '```',
+              '</details>',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
