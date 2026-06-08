@@ -207,6 +207,76 @@ def test_create_next_month_weeks_copies_recurring_transactions():
     assert copied_txns[0].is_recurring is True
 
 
+def test_create_next_month_weeks_copies_recurring_into_first_actually_new_week():
+    """If the chronologically-first week of the month already exists on disk
+    (e.g. materialised early by a manually-entered transaction), recurring
+    transactions must still be copied — exactly once — into the first week
+    that is genuinely created in this run. A position-based `idx == 0` check
+    would either drop the copy entirely (it never finds a "first" week to land
+    in) or, on other code paths, repeat it across every newly-created week."""
+    user = MagicMock()
+    user.id = uuid.uuid4()
+
+    last_week = MagicMock()
+    last_week.id = uuid.uuid4()
+    last_week.closing_balance = Decimal("500.00")
+
+    existing_week = MagicMock()
+    existing_week.closing_balance = Decimal("500.00")
+
+    recurring_txn = MagicMock()
+    recurring_txn.name = "Affitto"
+    recurring_txn.amount = Decimal("700.00")
+    recurring_txn.type = TransactionType.expense
+    recurring_txn.category = "Housing"
+    recurring_txn.recurrence_rule = "weekly"
+    recurring_txn.notes = None
+
+    added_objects = []
+    session = _make_session()
+    session.add.side_effect = lambda obj: added_objects.append(obj)
+
+    fw_call = {"n": 0}
+
+    def query_side_effect(model):
+        from celery_app.db import User, FinancialWeek, Transaction
+        if model is User:
+            return _make_query([user])
+        if model is FinancialWeek:
+            fw_call["n"] += 1
+            if fw_call["n"] == 1:
+                return _make_query(last_week)
+            if fw_call["n"] == 2:
+                # The first range's week is already on disk.
+                return _make_query(existing_week)
+            return _make_query(None)
+        if model is Transaction:
+            return _make_query([recurring_txn])
+        return MagicMock()
+
+    session.query.side_effect = query_side_effect
+
+    mock_self = MagicMock()
+    with patch("celery_app.tasks.month_setup.get_session", return_value=session):
+        with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
+            with patch("celery_app.tasks.month_setup._send_audit"):
+                create_next_month_weeks.run(mock_self)
+
+    from celery_app.db import FinancialWeek as FW, Transaction as Txn
+    new_weeks = [obj for obj in added_objects if isinstance(obj, FW)]
+    copied_txns = [obj for obj in added_objects if isinstance(obj, Txn)]
+
+    # Copied exactly once — neither dropped (under-copy when week 0 pre-exists)
+    # nor repeated across every newly-created week (over-copy/duplication).
+    assert len(copied_txns) == 1
+    assert copied_txns[0].name == "Affitto"
+
+    # It must land in the first week actually created this run (the second
+    # range — index 0 was already on disk), not in `existing_week`.
+    assert len(new_weeks) >= 1
+    assert copied_txns[0].week_id == new_weeks[0].id
+
+
 def test_create_next_month_weeks_skips_existing():
     """Weeks that already exist must not be re-created."""
     user = MagicMock()

@@ -94,7 +94,18 @@ def create_next_month_weeks(self):
                 )
 
                 running_carry = carry
-                for idx, (week_start, week_end) in enumerate(ranges):
+                # Copy recurring transactions exactly once per run, into the first
+                # week actually created below — NOT "the first range in `ranges`"
+                # (idx == 0): that week can already exist (e.g. materialised early by
+                # a manually-entered transaction, or by a previous run), in which case
+                # an idx-based check either skips the copy entirely (it never lands
+                # anywhere) or — on a future run where that week's gone missing again —
+                # re-copies the same recurring transactions into a "new" week that
+                # logically continues an already-seeded chain. Tying the copy to "the
+                # first genuinely new week" plus a one-shot flag makes the operation
+                # idempotent regardless of which range index that turns out to be.
+                copied_recurring = False
+                for week_start, week_end in ranges:
                     exists = (
                         session.query(FinancialWeek)
                         .filter(
@@ -121,8 +132,9 @@ def create_next_month_weeks(self):
                     session.add(new_week)
                     session.flush()
 
-                    # Copy recurring transactions only into the first new week.
-                    if idx == 0:
+                    # Copy recurring transactions exactly once, into the first week
+                    # actually created in this run (see comment above the flag init).
+                    if not copied_recurring and recurring:
                         for txn in recurring:
                             session.add(
                                 Transaction(
@@ -145,7 +157,8 @@ def create_next_month_weeks(self):
                             Decimal("0"),
                         )
                         running_carry = running_carry + rec_net
-                    # Weeks 2+ have no transactions yet; carry is unchanged.
+                        copied_recurring = True
+                    # Subsequent newly-created weeks have no transactions yet; carry unchanged.
 
                     created += 1
                     _send_audit(
