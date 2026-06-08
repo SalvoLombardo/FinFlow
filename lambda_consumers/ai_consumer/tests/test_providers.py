@@ -1,6 +1,7 @@
 """Tests for lambda_consumers/ai_consumer/providers.py — mock each AI SDK."""
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 
@@ -94,3 +95,126 @@ async def test_generate_raises_for_unknown_provider():
             ollama_model="",
             prompt="test",
         )
+
+
+# ---------------------------------------------------------------------------
+# Error classification — _status_code / _is_retryable
+# ---------------------------------------------------------------------------
+
+class _FakeStatusError(Exception):
+    def __init__(self, status_code):
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+
+
+class _FakeResponseError(Exception):
+    def __init__(self, status_code):
+        super().__init__(f"response status {status_code}")
+        self.response = MagicMock(status_code=status_code)
+
+
+def _named(name: str) -> Exception:
+    """Build an exception instance whose class name matches a known SDK error type."""
+    return type(name, (Exception,), {})()
+
+
+@pytest.mark.parametrize("status_code,expected", [
+    (429, True),   # rate limited — retry
+    (500, True),   # server error — retry
+    (503, True),   # service unavailable — retry
+    (400, False),  # bad request — permanent
+    (401, False),  # invalid API key — permanent
+    (403, False),  # forbidden — permanent
+])
+def test_is_retryable_classifies_status_codes(status_code, expected):
+    import providers
+
+    assert providers._is_retryable(_FakeStatusError(status_code)) is expected
+    assert providers._is_retryable(_FakeResponseError(status_code)) is expected
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("APITimeoutError", True),
+    ("APIConnectionError", True),
+    ("ServiceUnavailable", True),
+    ("ResourceExhausted", True),
+    ("AuthenticationError", False),
+    ("InvalidArgument", False),
+    ("BadRequestError", False),
+])
+def test_is_retryable_classifies_known_exception_names(name, expected):
+    import providers
+
+    assert providers._is_retryable(_named(name)) is expected
+
+
+def test_is_retryable_classifies_httpx_exceptions():
+    import providers
+
+    assert providers._is_retryable(httpx.TimeoutException("timed out")) is True
+    assert providers._is_retryable(httpx.ConnectError("conn refused")) is True
+
+
+# ---------------------------------------------------------------------------
+# _call_with_retry — the actual retry loop
+# ---------------------------------------------------------------------------
+
+async def test_call_with_retry_retries_transient_then_succeeds():
+    import providers
+
+    func = AsyncMock(side_effect=[_FakeStatusError(503), "ok"])
+
+    with patch("providers.asyncio.sleep", new=AsyncMock()) as mock_sleep:
+        result = await providers._call_with_retry("openai", func, "arg")
+
+    assert result == "ok"
+    assert func.await_count == 2
+    mock_sleep.assert_awaited_once()
+
+
+async def test_call_with_retry_does_not_retry_permanent_errors():
+    import providers
+
+    func = AsyncMock(side_effect=_FakeStatusError(401))
+
+    with patch("providers.asyncio.sleep", new=AsyncMock()) as mock_sleep, \
+         pytest.raises(_FakeStatusError):
+        await providers._call_with_retry("openai", func, "arg")
+
+    assert func.await_count == 1
+    mock_sleep.assert_not_called()
+
+
+async def test_call_with_retry_gives_up_after_max_attempts():
+    import providers
+
+    func = AsyncMock(side_effect=_FakeStatusError(500))
+
+    with patch("providers.asyncio.sleep", new=AsyncMock()), \
+         pytest.raises(_FakeStatusError):
+        await providers._call_with_retry("anthropic", func, "arg")
+
+    assert func.await_count == providers.MAX_PROVIDER_ATTEMPTS
+
+
+async def test_generate_retries_through_call_with_retry():
+    """generate() must route provider calls through the retry wrapper, not call them directly."""
+    import providers
+
+    flaky = AsyncMock(side_effect=[_FakeStatusError(429), "consiglio finale"])
+
+    with patch("providers.call_openai", new=flaky), \
+         patch("providers._decrypt_key", return_value="key"), \
+         patch("providers.asyncio.sleep", new=AsyncMock()):
+        result = await providers.generate(
+            ai_mode="api_key",
+            ai_provider="openai",
+            api_key_enc="enc",
+            ai_model="gpt-4o-mini",
+            ollama_url="",
+            ollama_model="",
+            prompt="test",
+        )
+
+    assert result == "consiglio finale"
+    assert flaky.await_count == 2
