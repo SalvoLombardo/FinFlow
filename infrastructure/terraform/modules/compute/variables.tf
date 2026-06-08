@@ -17,26 +17,10 @@ variable "workers_ec2_public_ip" {
   default     = ""
 }
 
-variable "database_url" {
-  description = "Full PostgreSQL async URL — points to EC2 public IP"
-  type        = string
-  sensitive   = true
-}
-
 variable "db_password" {
   description = "Database password — also used as Redis requirepass in the broker URL"
   type        = string
   sensitive   = true
-}
-
-variable "secret_key" {
-  type      = string
-  sensitive = true
-}
-
-variable "encryption_key" {
-  type      = string
-  sensitive = true
 }
 
 variable "frontend_url" {

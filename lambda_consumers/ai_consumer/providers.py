@@ -4,7 +4,6 @@ Mirrors backend/app/services/ai/ but with no dependency on the backend package.
 """
 import asyncio
 import logging
-import os
 import random
 
 import httpx
@@ -38,9 +37,9 @@ SYSTEM_PROMPT = (
 
 def _decrypt_key(enc: str) -> str:
     from cryptography.fernet import Fernet
-    key = os.environ.get("ENCRYPTION_KEY", "")
-    if not key:
-        raise ValueError("ENCRYPTION_KEY not set")
+    from deps import get_secret
+
+    key = get_secret("ENCRYPTION_KEY", "encryption_key")
     return Fernet(key.encode()).decrypt(enc.encode()).decode()
 
 

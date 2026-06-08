@@ -1,6 +1,11 @@
 locals {
   name = "${var.project}-${var.environment}"
 
+  # SSM Parameter Store prefix — Lambdas fetch DATABASE_URL/SECRET_KEY/ENCRYPTION_KEY
+  # from here at cold start instead of receiving them as plaintext env vars (mirrors
+  # the EC2 workers role pattern in modules/workers_ec2).
+  ssm_prefix = "/${var.project}/${var.environment}"
+
   # S3 keys for Lambda packages — CI/CD uploads real zips to these paths
   lambda_s3_keys = {
     api                   = "backend/handler.zip"
@@ -76,6 +81,11 @@ resource "aws_iam_role_policy" "api_inline" {
         Effect   = "Allow"
         Action   = ["sns:Publish"]
         Resource = [var.sns_topic_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = ["arn:aws:ssm:*:*:parameter${local.ssm_prefix}/*"]
       }
     ]
   })
@@ -95,9 +105,11 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      DATABASE_URL              = var.database_url
-      SECRET_KEY                = var.secret_key
-      ENCRYPTION_KEY            = var.encryption_key
+      # DATABASE_URL/SECRET_KEY/ENCRYPTION_KEY are intentionally NOT injected here —
+      # the app fetches them from SSM (SSM_PARAMETER_PREFIX) at cold start instead,
+      # avoiding double exposure (Lambda console + CloudWatch + Terraform state).
+      # See PRODUCTION_READINESS.md Phase 2 "secrets duplicated" finding.
+      SSM_PARAMETER_PREFIX      = local.ssm_prefix
       AWS_SNS_TOPIC_ARN         = var.sns_topic_arn
       AWS_SQS_PROJECTIONS_URL   = var.projections_queue_url
       AWS_SQS_AI_ANALYSIS_URL   = var.ai_analysis_queue_url
@@ -139,11 +151,18 @@ resource "aws_iam_role_policy" "projection_consumer_inline" {
   role = aws_iam_role.projection_consumer.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
-      Resource = [var.projections_queue_arn]
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+        Resource = [var.projections_queue_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = ["arn:aws:ssm:*:*:parameter${local.ssm_prefix}/*"]
+      }
+    ]
   })
 }
 
@@ -161,8 +180,9 @@ resource "aws_lambda_function" "projection_consumer" {
 
   environment {
     variables = {
-      DATABASE_URL = var.database_url
-      ENVIRONMENT  = var.environment
+      # DATABASE_URL fetched from SSM at cold start — see api Lambda comment above.
+      SSM_PARAMETER_PREFIX = local.ssm_prefix
+      ENVIRONMENT          = var.environment
     }
   }
 
@@ -199,11 +219,18 @@ resource "aws_iam_role_policy" "ai_consumer_inline" {
   role = aws_iam_role.ai_consumer.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
-      Resource = [var.ai_analysis_queue_arn]
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+        Resource = [var.ai_analysis_queue_arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = ["arn:aws:ssm:*:*:parameter${local.ssm_prefix}/*"]
+      }
+    ]
   })
 }
 
@@ -221,9 +248,9 @@ resource "aws_lambda_function" "ai_consumer" {
 
   environment {
     variables = {
-      DATABASE_URL   = var.database_url
-      ENCRYPTION_KEY = var.encryption_key
-      ENVIRONMENT    = var.environment
+      # DATABASE_URL/ENCRYPTION_KEY fetched from SSM at cold start — see api Lambda comment above.
+      SSM_PARAMETER_PREFIX = local.ssm_prefix
+      ENVIRONMENT          = var.environment
     }
   }
 
@@ -275,6 +302,11 @@ resource "aws_iam_role_policy" "notification_consumer_inline" {
         # ${local.name}-notifications, ...) so a future dedicated notification
         # topic is covered automatically.
         Resource = ["arn:aws:sns:${var.aws_region}:${split(":", var.sns_topic_arn)[4]}:${local.name}-*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = ["arn:aws:ssm:*:*:parameter${local.ssm_prefix}/*"]
       }
     ]
   })
@@ -294,7 +326,8 @@ resource "aws_lambda_function" "notification_consumer" {
 
   environment {
     variables = {
-      DATABASE_URL               = var.database_url
+      # DATABASE_URL fetched from SSM at cold start — see api Lambda comment above.
+      SSM_PARAMETER_PREFIX       = local.ssm_prefix
       AWS_NOTIFICATION_TOPIC_ARN = ""
       ENVIRONMENT                = var.environment
     }

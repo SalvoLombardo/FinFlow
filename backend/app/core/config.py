@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.secrets import get_secret
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -39,4 +41,12 @@ class Settings(BaseSettings):
     AI_DAILY_RATE_LIMIT: int = 10
 
 
-settings = Settings()
+# DATABASE_URL/SECRET_KEY/ENCRYPTION_KEY are resolved through get_secret() so the
+# Lambda deployment can fetch them from SSM at cold start instead of plaintext env
+# vars (Terraform omits the env vars in production — see modules/compute). Locally
+# and in CI the env vars are always set directly, so this is a no-op passthrough.
+settings = Settings(
+    DATABASE_URL=get_secret("DATABASE_URL", "database_url"),
+    SECRET_KEY=get_secret("SECRET_KEY", "secret_key"),
+    ENCRYPTION_KEY=get_secret("ENCRYPTION_KEY", "encryption_key"),
+)

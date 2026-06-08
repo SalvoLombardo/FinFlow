@@ -1,2 +1,3 @@
 pydantic>=2.7.0
 aioboto3>=12.3.0
+boto3>=1.34.0

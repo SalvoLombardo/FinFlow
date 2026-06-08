@@ -86,6 +86,21 @@ module "workers_ec2" {
   key_public            = file(pathexpand(var.ssh_public_key_path))
 }
 
+# DATABASE_URL is constructed from the EC2 Elastic IP (known after apply on first run).
+# Published to SSM (below) so Lambdas fetch it at cold start instead of receiving it
+# as a plaintext environment variable — see PRODUCTION_READINESS.md Phase 2
+# "secrets duplicated in SSM and plaintext Lambda env vars" finding.
+locals {
+  database_url = "postgresql+asyncpg://${var.db_username}:${module.secrets.db_password}@${module.workers_ec2.public_ip}:5432/finflow_db"
+}
+
+resource "aws_ssm_parameter" "database_url" {
+  name  = "/${var.project}/${var.environment}/database_url"
+  type  = "SecureString"
+  value = local.database_url
+  tags  = { Name = "${var.project}-database-url" }
+}
+
 module "compute" {
   source      = "./modules/compute"
   project     = var.project
@@ -102,12 +117,10 @@ module "compute" {
   notifications_queue_arn = module.messaging.notifications_queue_arn
   notifications_queue_url = module.messaging.notifications_queue_url
 
-  # DATABASE_URL is constructed from the EC2 Elastic IP (known after apply on first run)
-  database_url = "postgresql+asyncpg://${var.db_username}:${module.secrets.db_password}@${module.workers_ec2.public_ip}:5432/finflow_db"
-
+  # NOTE: DATABASE_URL/SECRET_KEY/ENCRYPTION_KEY are no longer passed to this module —
+  # the Lambdas fetch them from SSM (aws_ssm_parameter.database_url above, plus
+  # module.secrets.secret_key_ssm_arn / encryption_key_ssm_arn) at cold start instead.
   db_password           = module.secrets.db_password
-  secret_key            = var.secret_key
-  encryption_key        = var.encryption_key
   workers_ec2_public_ip = module.workers_ec2.public_ip
 
   # Scopes CORS on both the API Lambda (FastAPI middleware) and the API Gateway
