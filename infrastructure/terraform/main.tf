@@ -109,4 +109,8 @@ module "compute" {
   secret_key            = var.secret_key
   encryption_key        = var.encryption_key
   workers_ec2_public_ip = module.workers_ec2.public_ip
+
+  # Scopes CORS on both the API Lambda (FastAPI middleware) and the API Gateway
+  # to the actual frontend origin instead of "*"
+  frontend_url = module.cdn.cloudfront_url
 }

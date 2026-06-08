@@ -38,3 +38,8 @@ variable "encryption_key" {
   type      = string
   sensitive = true
 }
+
+variable "frontend_url" {
+  description = "CloudFront frontend origin — scopes CORS on both the API Lambda and the API Gateway"
+  type        = string
+}

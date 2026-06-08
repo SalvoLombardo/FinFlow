@@ -109,6 +109,7 @@ resource "aws_lambda_function" "api" {
       KAFKA_AUDIT_TOPIC       = "finflow.audit"
       S3_AUDIT_BUCKET         = var.audit_bucket_name
       ENVIRONMENT             = var.environment
+      FRONTEND_URL            = var.frontend_url
     }
   }
 
@@ -266,9 +267,14 @@ resource "aws_iam_role_policy" "notification_consumer_inline" {
         Resource = [var.notifications_queue_arn]
       },
       {
-        Effect   = "Allow"
-        Action   = ["sns:Publish"]
-        Resource = ["*"]
+        Effect = "Allow"
+        Action = ["sns:Publish"]
+        # Scoped to this project's own SNS topics (account id derived from the
+        # existing fan-out topic ARN — avoids a wildcard "publish anywhere").
+        # Matches the project naming convention (${local.name}-events,
+        # ${local.name}-notifications, ...) so a future dedicated notification
+        # topic is covered automatically.
+        Resource = ["arn:aws:sns:${var.aws_region}:${split(":", var.sns_topic_arn)[4]}:${local.name}-*"]
       }
     ]
   })
@@ -318,7 +324,7 @@ resource "aws_apigatewayv2_api" "main" {
   description   = "FinFlow HTTP API — proxies all routes to the main Lambda"
 
   cors_configuration {
-    allow_origins = ["*"]
+    allow_origins = [var.frontend_url]
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["Content-Type", "Authorization"]
     max_age       = 300
