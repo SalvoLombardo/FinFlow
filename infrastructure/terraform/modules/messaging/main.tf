@@ -18,19 +18,19 @@ resource "aws_sns_topic" "events" {
 resource "aws_sqs_queue" "projections_dlq" {
   name                      = "${local.name}-projections-dlq"
   message_retention_seconds = 1209600
-  tags = { Name = "${local.name}-projections-dlq" }
+  tags                      = { Name = "${local.name}-projections-dlq" }
 }
 
 resource "aws_sqs_queue" "ai_analysis_dlq" {
   name                      = "${local.name}-ai-analysis-dlq"
   message_retention_seconds = 1209600
-  tags = { Name = "${local.name}-ai-analysis-dlq" }
+  tags                      = { Name = "${local.name}-ai-analysis-dlq" }
 }
 
 resource "aws_sqs_queue" "notifications_dlq" {
   name                      = "${local.name}-notifications-dlq"
   message_retention_seconds = 1209600
-  tags = { Name = "${local.name}-notifications-dlq" }
+  tags                      = { Name = "${local.name}-notifications-dlq" }
 }
 
 # ---------------------------------------------------------------

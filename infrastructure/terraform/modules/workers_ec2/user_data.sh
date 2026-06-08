@@ -21,6 +21,27 @@ ln -sf /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/bin/docker-co
 mkdir -p /opt/${project}
 chown ec2-user:ec2-user /opt/${project}
 
+# ---------------------------------------------------------------
+# TLS for PostgreSQL — encrypts the wire between Lambda/backend and this
+# publicly-reachable instance. The long random password alone doesn't stop
+# passive sniffing of credentials/data in transit (the actual highest-severity
+# risk of the public-Postgres trade-off — see PRODUCTION_READINESS.md "public
+# Postgres" finding). Self-signed because there's no private CA in this $0
+# setup; clients connect with sslmode=require / ssl=<unverified context> —
+# i.e. encrypt, don't verify identity (matching libpq's "require" semantics,
+# the realistic option without a CA distribution mechanism).
+# ---------------------------------------------------------------
+mkdir -p /opt/${project}/certs
+openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+  -keyout /opt/${project}/certs/server.key \
+  -out /opt/${project}/certs/server.crt \
+  -subj "/CN=${project}-${environment}-postgres"
+# The official postgres image runs as the `postgres` user (uid/gid 999) and
+# refuses to start if its private key is group/world-readable.
+chown 999:999 /opt/${project}/certs/server.key /opt/${project}/certs/server.crt
+chmod 600 /opt/${project}/certs/server.key
+chmod 644 /opt/${project}/certs/server.crt
+
 # Write docker-compose for infrastructure services (PostgreSQL + Redis).
 # Values below are injected by Terraform templatefile at apply time —
 # the single-quoted heredoc markers prevent bash from re-expanding them.
@@ -38,6 +59,25 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - /opt/${project}/certs/server.crt:/var/lib/postgresql/server.crt:ro
+      - /opt/${project}/certs/server.key:/var/lib/postgresql/server.key:ro
+    command:
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/var/lib/postgresql/server.crt"
+      - "-c"
+      - "ssl_key_file=/var/lib/postgresql/server.key"
+      - "-c"
+      - "log_connections=on"
+      - "-c"
+      - "log_destination=stderr"
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: "${aws_region}"
+        awslogs-group: "${log_group_name}"
+        awslogs-stream: postgres
 
   redis:
     image: redis:7-alpine

@@ -109,13 +109,17 @@ resource "aws_lambda_function" "api" {
       # the app fetches them from SSM (SSM_PARAMETER_PREFIX) at cold start instead,
       # avoiding double exposure (Lambda console + CloudWatch + Terraform state).
       # See PRODUCTION_READINESS.md Phase 2 "secrets duplicated" finding.
-      SSM_PARAMETER_PREFIX      = local.ssm_prefix
+      SSM_PARAMETER_PREFIX = local.ssm_prefix
+      # Postgres is publicly reachable with no private CA — encrypt the channel
+      # without verifying the self-signed cert (see PRODUCTION_READINESS.md
+      # "public Postgres" finding, app.core.database._ssl_connect_args).
+      DATABASE_SSL_REQUIRE      = "true"
       AWS_SNS_TOPIC_ARN         = var.sns_topic_arn
       AWS_SQS_PROJECTIONS_URL   = var.projections_queue_url
       AWS_SQS_AI_ANALYSIS_URL   = var.ai_analysis_queue_url
       AWS_SQS_NOTIFICATIONS_URL = var.notifications_queue_url
       # Redis on EC2 public IP — same instance as PostgreSQL
-      CELERY_BROKER_URL       = var.workers_ec2_public_ip != "" ? "redis://:${var.db_password}@${var.workers_ec2_public_ip}:6379/0" : ""
+      CELERY_BROKER_URL = var.workers_ec2_public_ip != "" ? "redis://:${var.db_password}@${var.workers_ec2_public_ip}:6379/0" : ""
       # Kafka disabled in cloud deployment (insufficient RAM on t2.micro)
       KAFKA_BOOTSTRAP_SERVERS = ""
       KAFKA_AUDIT_TOPIC       = "finflow.audit"
@@ -182,6 +186,8 @@ resource "aws_lambda_function" "projection_consumer" {
     variables = {
       # DATABASE_URL fetched from SSM at cold start — see api Lambda comment above.
       SSM_PARAMETER_PREFIX = local.ssm_prefix
+      # See DATABASE_SSL_REQUIRE comment on the api Lambda above.
+      DATABASE_SSL_REQUIRE = "true"
       ENVIRONMENT          = var.environment
     }
   }
@@ -250,6 +256,8 @@ resource "aws_lambda_function" "ai_consumer" {
     variables = {
       # DATABASE_URL/ENCRYPTION_KEY fetched from SSM at cold start — see api Lambda comment above.
       SSM_PARAMETER_PREFIX = local.ssm_prefix
+      # See DATABASE_SSL_REQUIRE comment on the api Lambda above.
+      DATABASE_SSL_REQUIRE = "true"
       ENVIRONMENT          = var.environment
     }
   }
@@ -327,7 +335,9 @@ resource "aws_lambda_function" "notification_consumer" {
   environment {
     variables = {
       # DATABASE_URL fetched from SSM at cold start — see api Lambda comment above.
-      SSM_PARAMETER_PREFIX       = local.ssm_prefix
+      SSM_PARAMETER_PREFIX = local.ssm_prefix
+      # See DATABASE_SSL_REQUIRE comment on the api Lambda above.
+      DATABASE_SSL_REQUIRE       = "true"
       AWS_NOTIFICATION_TOPIC_ARN = ""
       ENVIRONMENT                = var.environment
     }

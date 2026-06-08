@@ -37,3 +37,13 @@ output "audit_bucket" {
   description = "S3 bucket for Kafka audit logs (written by EC2 Celery workers)"
   value       = module.storage.audit_bucket_id
 }
+
+output "security_alerts_topic_arn" {
+  description = <<-EOT
+    SNS topic for the PostgreSQL repeated-failed-auth CloudWatch alarm. Subscribe
+    your email after apply (Terraform can't complete an email subscription — it
+    requires a confirmation click):
+      aws sns subscribe --topic-arn <this-arn> --protocol email --notification-endpoint you@example.com
+  EOT
+  value       = module.workers_ec2.security_alerts_topic_arn
+}

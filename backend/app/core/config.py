@@ -11,6 +11,12 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str
+    # Postgres is publicly reachable over the internet (Free-Tier trade-off — see
+    # ARCHITECTURE_NOTES.md); this forces an encrypted-but-unverified TLS channel
+    # (the realistic option without a private CA to distribute) so credentials and
+    # data aren't sent in plaintext. Terraform sets it to true for the Lambda
+    # deployment only — local/Docker/CI Postgres has no TLS configured.
+    DATABASE_SSL_REQUIRE: bool = False
 
     # Security
     SECRET_KEY: str

@@ -9,7 +9,7 @@ locals {
 resource "aws_s3_bucket" "frontend" {
   bucket        = "${local.name}-frontend"
   force_destroy = true
-  tags = { Name = "${local.name}-frontend" }
+  tags          = { Name = "${local.name}-frontend" }
 }
 
 resource "aws_s3_bucket_public_access_block" "frontend" {
@@ -32,7 +32,7 @@ resource "aws_s3_bucket_versioning" "frontend" {
 resource "aws_s3_bucket" "audit" {
   bucket        = "${local.name}-audit-logs"
   force_destroy = false
-  tags = { Name = "${local.name}-audit" }
+  tags          = { Name = "${local.name}-audit" }
 }
 
 resource "aws_s3_bucket_public_access_block" "audit" {
@@ -63,7 +63,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "audit" {
 resource "aws_s3_bucket" "lambda_packages" {
   bucket        = "${local.name}-lambda-packages"
   force_destroy = true
-  tags = { Name = "${local.name}-lambda-packages" }
+  tags          = { Name = "${local.name}-lambda-packages" }
 }
 
 resource "aws_s3_bucket_public_access_block" "lambda_packages" {

@@ -2,6 +2,56 @@ locals {
   name = "${var.project}-${var.environment}"
 }
 
+data "aws_region" "current" {}
+
+# ---------------------------------------------------------------
+# CloudWatch Logs — PostgreSQL connection log (visibility into the public-DB
+# exposure: who's connecting/failing auth). Docker's awslogs driver ships
+# container stdout/stderr here directly — no CloudWatch Agent needed.
+# Short retention + the always-free CloudWatch Logs allowance (5 GB
+# ingestion/storage, 10 custom metrics, 10 alarms) keep this at $0 for a
+# personal-scale app. See PRODUCTION_READINESS.md "public Postgres" finding.
+# ---------------------------------------------------------------
+
+resource "aws_cloudwatch_log_group" "postgres" {
+  name              = "/${local.name}/postgres"
+  retention_in_days = 14
+  tags              = { Name = "${local.name}-postgres-logs" }
+}
+
+resource "aws_cloudwatch_log_metric_filter" "postgres_failed_auth" {
+  name           = "${local.name}-postgres-failed-auth"
+  log_group_name = aws_cloudwatch_log_group.postgres.name
+  pattern        = "\"password authentication failed\""
+
+  metric_transformation {
+    name      = "PostgresFailedAuthAttempts"
+    namespace = "${local.name}/Postgres"
+    value     = "1"
+    unit      = "Count"
+  }
+}
+
+resource "aws_sns_topic" "security_alerts" {
+  name = "${local.name}-security-alerts"
+  tags = { Name = "${local.name}-security-alerts" }
+}
+
+resource "aws_cloudwatch_metric_alarm" "postgres_failed_auth" {
+  alarm_name          = "${local.name}-postgres-failed-auth"
+  alarm_description   = "Repeated PostgreSQL authentication failures — possible brute-force against the publicly-reachable instance."
+  namespace           = aws_cloudwatch_log_metric_filter.postgres_failed_auth.metric_transformation[0].namespace
+  metric_name         = aws_cloudwatch_log_metric_filter.postgres_failed_auth.metric_transformation[0].name
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 5
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.security_alerts.arn]
+  ok_actions          = [aws_sns_topic.security_alerts.arn]
+}
+
 # ---------------------------------------------------------------
 # IAM role for EC2 workers
 # ---------------------------------------------------------------
@@ -44,6 +94,11 @@ resource "aws_iam_role_policy" "workers_inline" {
         Effect   = "Allow"
         Action   = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
         Resource = ["arn:aws:ssm:*:*:parameter${var.ssm_prefix}/*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
+        Resource = ["${aws_cloudwatch_log_group.postgres.arn}:*"]
       }
     ]
   })
@@ -93,10 +148,13 @@ resource "aws_instance" "workers" {
   iam_instance_profile   = aws_iam_instance_profile.workers.name
 
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
-    project     = var.project
-    db_username = var.db_username
-    db_password = var.db_password
-    db_name     = var.db_name
+    project        = var.project
+    environment    = var.environment
+    aws_region     = data.aws_region.current.name
+    db_username    = var.db_username
+    db_password    = var.db_password
+    db_name        = var.db_name
+    log_group_name = aws_cloudwatch_log_group.postgres.name
   }))
 
   root_block_device {

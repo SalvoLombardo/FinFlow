@@ -10,7 +10,7 @@ resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
-  tags = { Name = "${local.name}-vpc" }
+  tags                 = { Name = "${local.name}-vpc" }
 }
 
 resource "aws_internet_gateway" "main" {
@@ -29,7 +29,7 @@ resource "aws_subnet" "public" {
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index)
   availability_zone       = var.availability_zones[count.index]
   map_public_ip_on_launch = true
-  tags = { Name = "${local.name}-public-${count.index + 1}" }
+  tags                    = { Name = "${local.name}-public-${count.index + 1}" }
 }
 
 resource "aws_route_table" "public" {
@@ -103,5 +103,5 @@ resource "aws_vpc_endpoint" "s3" {
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.public.id]
-  tags = { Name = "${local.name}-vpce-s3" }
+  tags              = { Name = "${local.name}-vpce-s3" }
 }

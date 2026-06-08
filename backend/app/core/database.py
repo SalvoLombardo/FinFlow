@@ -1,3 +1,4 @@
+import ssl
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -23,12 +24,30 @@ _session_factory: async_sessionmaker | None = None
 # ON FIRST HTTP REQUEST — called once, then never again
 # ─────────────────────────────────────────────────────────────
 
+# Postgres is publicly reachable with no private CA to issue/verify a trusted
+# certificate against (see DATABASE_SSL_REQUIRE in config.py) — so we ask asyncpg
+# to encrypt the channel without verifying the server's (self-signed) identity.
+# This stops passive sniffing of credentials/data in transit, which is the actual
+# risk the long random password alone doesn't address; it intentionally does not
+# protect against a true MITM, which would need a real CA — out of scope for a $0
+# personal-project deployment.
+def _ssl_connect_args(ssl_require: bool) -> dict:
+    if not ssl_require:
+        return {}
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return {"ssl": context}
+
+
 # 3. Called only on first request. Reads DATABASE_URL from settings
 #    (safe now — env vars are fully loaded by the time a request arrives).
 #    Creates the async engine with pool_pre_ping=True, which checks
 #    that the connection is still alive before using it.
-def _make_engine(url: str):
-    return create_async_engine(url, echo=False, pool_pre_ping=True)
+def _make_engine(url: str, ssl_require: bool = False):
+    return create_async_engine(
+        url, echo=False, pool_pre_ping=True, connect_args=_ssl_connect_args(ssl_require)
+    )
 
 
 # 4. Builds the session factory using the engine created above.
@@ -38,7 +57,7 @@ def _make_engine(url: str):
 def _build_session_factory() -> async_sessionmaker:
     from app.core.config import settings
 
-    engine = _make_engine(settings.DATABASE_URL)
+    engine = _make_engine(settings.DATABASE_URL, settings.DATABASE_SSL_REQUIRE)
     return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

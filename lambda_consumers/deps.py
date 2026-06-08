@@ -1,5 +1,6 @@
 import logging
 import os
+import ssl
 
 import boto3
 from pydantic import BaseModel
@@ -42,8 +43,27 @@ def get_secret(env_var: str, ssm_name: str) -> str:
     return _secret_cache[ssm_name]
 
 
+# Postgres is publicly reachable with no private CA to issue/verify a trusted
+# certificate against — DATABASE_SSL_REQUIRE (set by Terraform for this Lambda
+# deployment only) asks asyncpg to encrypt the channel without verifying the
+# server's (self-signed) identity, stopping passive sniffing of credentials/data
+# in transit. Local/Docker/CI Postgres has no TLS configured, so this stays off
+# there. See PRODUCTION_READINESS.md "public Postgres" finding.
+def _ssl_connect_args() -> dict:
+    if os.environ.get("DATABASE_SSL_REQUIRE", "").lower() not in ("1", "true", "yes"):
+        return {}
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return {"ssl": context}
+
+
 # NullPool: avoids stale connections across Lambda invocations with different event loops.
-engine = create_async_engine(get_secret("DATABASE_URL", "database_url"), poolclass=NullPool)
+engine = create_async_engine(
+    get_secret("DATABASE_URL", "database_url"),
+    poolclass=NullPool,
+    connect_args=_ssl_connect_args(),
+)
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
