@@ -28,7 +28,7 @@ def test_generate_no_ai_users():
     mock_self = MagicMock()
     with patch("celery_app.tasks.weekly_report.get_session", return_value=session):
         with patch("celery_app.tasks.weekly_report.publish_event") as mock_pub:
-            result = generate_for_all_users.run(mock_self)
+            result = generate_for_all_users.run.__func__(mock_self)
 
     assert result == {"published": 0}
     mock_pub.assert_not_called()
@@ -43,7 +43,7 @@ def test_generate_publishes_for_each_ai_user():
     mock_self = MagicMock()
     with patch("celery_app.tasks.weekly_report.get_session", return_value=session):
         with patch("celery_app.tasks.weekly_report.publish_event") as mock_pub:
-            result = generate_for_all_users.run(mock_self)
+            result = generate_for_all_users.run.__func__(mock_self)
 
     assert result == {"published": 3}
     assert mock_pub.call_count == 3
@@ -62,7 +62,7 @@ def test_generate_event_contains_user_id():
     mock_self = MagicMock()
     with patch("celery_app.tasks.weekly_report.get_session", return_value=session):
         with patch("celery_app.tasks.weekly_report.publish_event") as mock_pub:
-            generate_for_all_users.run(mock_self)
+            generate_for_all_users.run.__func__(mock_self)
 
     assert mock_pub.call_args.kwargs["user_id"] == str(uid)
 
@@ -76,6 +76,6 @@ def test_generate_retries_on_db_error():
 
     with patch("celery_app.tasks.weekly_report.get_session", return_value=session):
         with pytest.raises(RuntimeError, match="retry"):
-            generate_for_all_users.run(mock_self)
+            generate_for_all_users.run.__func__(mock_self)
 
     mock_self.retry.assert_called_once()

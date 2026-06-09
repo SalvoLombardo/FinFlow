@@ -71,7 +71,7 @@ def test_create_next_month_weeks_no_users():
     mock_self = MagicMock()
     with patch("celery_app.tasks.month_setup.get_session", return_value=session):
         with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
-            result = create_next_month_weeks.run(mock_self)
+            result = create_next_month_weeks.run.__func__(mock_self)
 
     assert result["created"] == 0
     assert result["month"] == "2026-05"
@@ -107,7 +107,7 @@ def test_create_next_month_weeks_new_user_no_previous_weeks():
     with patch("celery_app.tasks.month_setup.get_session", return_value=session):
         with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
             with patch("celery_app.tasks.month_setup._send_audit"):
-                result = create_next_month_weeks.run(mock_self)
+                result = create_next_month_weeks.run.__func__(mock_self)
 
     # 4 weeks for May 2026
     assert result["created"] == 4
@@ -150,7 +150,7 @@ def test_create_next_month_weeks_uses_closing_balance():
     with patch("celery_app.tasks.month_setup.get_session", return_value=session):
         with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
             with patch("celery_app.tasks.month_setup._send_audit"):
-                create_next_month_weeks.run(mock_self)
+                create_next_month_weeks.run.__func__(mock_self)
 
     from celery_app.db import FinancialWeek as FW
     new_weeks = [obj for obj in added_weeks if isinstance(obj, FW)]
@@ -198,7 +198,7 @@ def test_create_next_month_weeks_copies_recurring_transactions():
     with patch("celery_app.tasks.month_setup.get_session", return_value=session):
         with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
             with patch("celery_app.tasks.month_setup._send_audit"):
-                create_next_month_weeks.run(mock_self)
+                create_next_month_weeks.run.__func__(mock_self)
 
     from celery_app.db import Transaction as Txn
     copied_txns = [obj for obj in added_objects if isinstance(obj, Txn)]
@@ -260,7 +260,7 @@ def test_create_next_month_weeks_copies_recurring_into_first_actually_new_week()
     with patch("celery_app.tasks.month_setup.get_session", return_value=session):
         with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
             with patch("celery_app.tasks.month_setup._send_audit"):
-                create_next_month_weeks.run(mock_self)
+                create_next_month_weeks.run.__func__(mock_self)
 
     from celery_app.db import FinancialWeek as FW, Transaction as Txn
     new_weeks = [obj for obj in added_objects if isinstance(obj, FW)]
@@ -307,7 +307,7 @@ def test_create_next_month_weeks_skips_existing():
     with patch("celery_app.tasks.month_setup.get_session", return_value=session):
         with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
             with patch("celery_app.tasks.month_setup._send_audit"):
-                result = create_next_month_weeks.run(mock_self)
+                result = create_next_month_weeks.run.__func__(mock_self)
 
     assert result["created"] == 0
     session.add.assert_not_called()
@@ -323,6 +323,6 @@ def test_create_next_month_weeks_retries_on_db_error():
     with patch("celery_app.tasks.month_setup.get_session", return_value=session):
         with patch("celery_app.tasks.month_setup._today", return_value=date(2026, 4, 27)):
             with pytest.raises(RuntimeError, match="retry"):
-                create_next_month_weeks.run(mock_self)
+                create_next_month_weeks.run.__func__(mock_self)
 
     mock_self.retry.assert_called_once()

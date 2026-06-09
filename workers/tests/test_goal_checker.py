@@ -52,7 +52,7 @@ def test_no_expiring_goals():
     with patch("celery_app.tasks.goal_checker.get_session", return_value=session):
         with patch("celery_app.tasks.goal_checker._today", return_value=TODAY):
             with patch("celery_app.tasks.goal_checker.publish_event") as mock_pub:
-                result = check_expiring_goals.run(mock_self)
+                result = check_expiring_goals.run.__func__(mock_self)
 
     assert result == {"published": 0}
     mock_pub.assert_not_called()
@@ -71,7 +71,7 @@ def test_goal_expiring_and_behind_gets_event():
     with patch("celery_app.tasks.goal_checker.get_session", return_value=session):
         with patch("celery_app.tasks.goal_checker._today", return_value=TODAY):
             with patch("celery_app.tasks.goal_checker.publish_event") as mock_pub:
-                result = check_expiring_goals.run(mock_self)
+                result = check_expiring_goals.run.__func__(mock_self)
 
     assert result == {"published": 1}
     mock_pub.assert_called_once()
@@ -93,7 +93,7 @@ def test_goal_on_track_not_published():
     with patch("celery_app.tasks.goal_checker.get_session", return_value=session):
         with patch("celery_app.tasks.goal_checker._today", return_value=TODAY):
             with patch("celery_app.tasks.goal_checker.publish_event") as mock_pub:
-                result = check_expiring_goals.run(mock_self)
+                result = check_expiring_goals.run.__func__(mock_self)
 
     assert result == {"published": 0}
     mock_pub.assert_not_called()
@@ -113,7 +113,7 @@ def test_goal_exactly_at_threshold_not_published():
     with patch("celery_app.tasks.goal_checker.get_session", return_value=session):
         with patch("celery_app.tasks.goal_checker._today", return_value=TODAY):
             with patch("celery_app.tasks.goal_checker.publish_event") as mock_pub:
-                result = check_expiring_goals.run(mock_self)
+                result = check_expiring_goals.run.__func__(mock_self)
 
     assert result == {"published": 0}
 
@@ -131,7 +131,7 @@ def test_goal_zero_target_amount_skipped():
     with patch("celery_app.tasks.goal_checker.get_session", return_value=session):
         with patch("celery_app.tasks.goal_checker._today", return_value=TODAY):
             with patch("celery_app.tasks.goal_checker.publish_event") as mock_pub:
-                result = check_expiring_goals.run(mock_self)
+                result = check_expiring_goals.run.__func__(mock_self)
 
     assert result == {"published": 0}
 
@@ -154,7 +154,7 @@ def test_mixed_goals_only_behind_ones_published():
     with patch("celery_app.tasks.goal_checker.get_session", return_value=session):
         with patch("celery_app.tasks.goal_checker._today", return_value=TODAY):
             with patch("celery_app.tasks.goal_checker.publish_event") as mock_pub:
-                result = check_expiring_goals.run(mock_self)
+                result = check_expiring_goals.run.__func__(mock_self)
 
     assert result == {"published": 1}
     assert mock_pub.call_count == 1
@@ -170,6 +170,6 @@ def test_check_expiring_retries_on_db_error():
     with patch("celery_app.tasks.goal_checker.get_session", return_value=session):
         with patch("celery_app.tasks.goal_checker._today", return_value=TODAY):
             with pytest.raises(RuntimeError, match="retry"):
-                check_expiring_goals.run(mock_self)
+                check_expiring_goals.run.__func__(mock_self)
 
     mock_self.retry.assert_called_once()
