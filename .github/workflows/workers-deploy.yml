@@ -50,8 +50,10 @@ jobs:
           chmod 600 ~/.ssh/ec2_key
           ssh-keyscan -H ${{ env.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Install rsync
-        run: sudo apt-get install -y rsync
+      - name: Ensure rsync is installed on EC2
+        run: |
+          ssh -i ~/.ssh/ec2_key ${{ env.EC2_USER }}@${{ env.EC2_HOST }} \
+            "command -v rsync || sudo dnf install -y rsync"
 
       - name: Rsync workers/ to EC2
         run: |
