@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # data aren't sent in plaintext. Terraform sets it to true for the Lambda
     # deployment only — local/Docker/CI Postgres has no TLS configured.
     DATABASE_SSL_REQUIRE: bool = False
+    DB_CONNECT_TIMEOUT: int = 5   # seconds to establish the TCP connection
+    DB_STATEMENT_TIMEOUT: int = 15  # default timeout for every SQL command
 
     # Security
     SECRET_KEY: str

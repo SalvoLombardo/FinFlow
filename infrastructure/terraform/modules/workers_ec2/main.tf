@@ -52,6 +52,23 @@ resource "aws_cloudwatch_metric_alarm" "postgres_failed_auth" {
   ok_actions          = [aws_sns_topic.security_alerts.arn]
 }
 
+# Kafka audit producer emits this metric when all 3 retries are exhausted and an
+# audit event is permanently dropped. Any non-zero value in a 5-minute window is
+# a data-integrity event worth investigating — fire on ≥1 drop.
+resource "aws_cloudwatch_metric_alarm" "kafka_audit_dropped" {
+  alarm_name          = "${local.name}-kafka-audit-dropped"
+  alarm_description   = "One or more Kafka audit events were permanently dropped after all retries. Audit log has a gap."
+  namespace           = "FinFlow/Audit"
+  metric_name         = "DroppedAuditEvents"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.security_alerts.arn]
+}
+
 # ---------------------------------------------------------------
 # IAM role for EC2 workers
 # ---------------------------------------------------------------
@@ -99,6 +116,13 @@ resource "aws_iam_role_policy" "workers_inline" {
         Effect   = "Allow"
         Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
         Resource = ["${aws_cloudwatch_log_group.postgres.arn}:*"]
+      },
+      {
+        # cloudwatch:PutMetricData does not support resource-level restrictions —
+        # Resource = ["*"] is required by the AWS API for this action.
+        Effect   = "Allow"
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = ["*"]
       }
     ]
   })

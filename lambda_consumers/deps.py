@@ -58,11 +58,14 @@ def _ssl_connect_args() -> dict:
     return {"ssl": context}
 
 
+_DB_CONNECT_TIMEOUT = int(os.environ.get("DB_CONNECT_TIMEOUT", "5"))
+_DB_STATEMENT_TIMEOUT = int(os.environ.get("DB_STATEMENT_TIMEOUT", "15"))
+
 # NullPool: avoids stale connections across Lambda invocations with different event loops.
 engine = create_async_engine(
     get_secret("DATABASE_URL", "database_url"),
     poolclass=NullPool,
-    connect_args=_ssl_connect_args(),
+    connect_args={**_ssl_connect_args(), "connect_timeout": _DB_CONNECT_TIMEOUT, "command_timeout": _DB_STATEMENT_TIMEOUT},
 )
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

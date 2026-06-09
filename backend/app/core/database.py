@@ -44,9 +44,12 @@ def _ssl_connect_args(ssl_require: bool) -> dict:
 #    (safe now — env vars are fully loaded by the time a request arrives).
 #    Creates the async engine with pool_pre_ping=True, which checks
 #    that the connection is still alive before using it.
-def _make_engine(url: str, ssl_require: bool = False):
+def _make_engine(url: str, ssl_require: bool = False, connect_timeout: int = 5, statement_timeout: int = 15):
+    connect_args = _ssl_connect_args(ssl_require)
+    connect_args["connect_timeout"] = connect_timeout
+    connect_args["command_timeout"] = statement_timeout
     return create_async_engine(
-        url, echo=False, pool_pre_ping=True, connect_args=_ssl_connect_args(ssl_require)
+        url, echo=False, pool_pre_ping=True, connect_args=connect_args
     )
 
 
@@ -57,7 +60,12 @@ def _make_engine(url: str, ssl_require: bool = False):
 def _build_session_factory() -> async_sessionmaker:
     from app.core.config import settings
 
-    engine = _make_engine(settings.DATABASE_URL, settings.DATABASE_SSL_REQUIRE)
+    engine = _make_engine(
+        settings.DATABASE_URL,
+        settings.DATABASE_SSL_REQUIRE,
+        settings.DB_CONNECT_TIMEOUT,
+        settings.DB_STATEMENT_TIMEOUT,
+    )
     return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

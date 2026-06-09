@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+import boto3
 import orjson
 from aiokafka import AIOKafkaProducer
 from pydantic import BaseModel, Field
@@ -13,8 +14,31 @@ logger = logging.getLogger(__name__)
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_AUDIT_TOPIC = os.environ.get("KAFKA_AUDIT_TOPIC", "finflow.audit")
+_AWS_REGION = os.environ.get("AWS_REGION", "eu-west-1")
 
 _MAX_ATTEMPTS = 3
+_CW_NAMESPACE = "FinFlow/Audit"
+_CW_METRIC_DROPPED = "DroppedAuditEvents"
+
+
+def _emit_drop_metric(action: str) -> None:
+    """Push a single Count=1 data point to CloudWatch when an audit event is permanently dropped.
+
+    Swallows any emission failure — dropping a metric must never raise in the caller.
+    """
+    try:
+        cw = boto3.client("cloudwatch", region_name=_AWS_REGION)
+        cw.put_metric_data(
+            Namespace=_CW_NAMESPACE,
+            MetricData=[{
+                "MetricName": _CW_METRIC_DROPPED,
+                "Value": 1,
+                "Unit": "Count",
+                "Dimensions": [{"Name": "Action", "Value": action}],
+            }],
+        )
+    except Exception as exc:
+        logger.warning("Failed to emit Kafka drop metric: %s", exc)
 
 
 class AuditEvent(BaseModel):
@@ -70,6 +94,7 @@ class KafkaAuditProducer:
             event.action,
             event.entity_id,
         )
+        _emit_drop_metric(event.action)
 
 
 audit_producer = KafkaAuditProducer()

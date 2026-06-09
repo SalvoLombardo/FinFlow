@@ -107,5 +107,10 @@ SECRET_KEY=__FILL_FROM_SSM__
 ENCRYPTION_KEY=__FILL_FROM_SSM__
 S3_AUDIT_BUCKET=__FILL_FROM_TERRAFORM_OUTPUT__
 DOTENV_EOF
+# Restrict access: readable only by ec2-user (the Celery process owner).
+# user_data runs as root — without this, the file inherits the default umask (644)
+# and any shell user on the instance can read the plaintext DATABASE_URL and broker URL.
+chown ec2-user:ec2-user /opt/${project}/.env
+chmod 600 /opt/${project}/.env
 
 echo "Bootstrap complete — PostgreSQL and Redis running. Deploy Celery workers via CI/CD (Phase 7)."
