@@ -388,3 +388,6 @@ See [`.env.example`](.env.example) for the full list.
 **Frontend production build:** `VITE_API_BASE_URL` in `frontend/.env.production` points to
 the API Gateway URL. The Vite dev server proxies `/api` to `http://localhost:8000` so no
 env var is needed locally.
+
+
+adasd
