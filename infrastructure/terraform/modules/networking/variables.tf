@@ -11,3 +11,9 @@ variable "availability_zones" {
   type    = list(string)
   default = ["eu-west-1a", "eu-west-1b"]
 }
+
+variable "blocked_ips" {
+  description = "CIDR blocks to deny on port 5432 (known scanner/bot IPs). Each entry needs /32 for a single host."
+  type        = list(string)
+  default     = []
+}

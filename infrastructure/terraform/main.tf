@@ -48,6 +48,7 @@ module "networking" {
   aws_region         = var.aws_region
   vpc_cidr           = var.vpc_cidr
   availability_zones = var.availability_zones
+  blocked_ips        = ["186.236.240.56/32"]
 }
 
 module "messaging" {

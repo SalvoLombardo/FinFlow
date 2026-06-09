@@ -43,9 +43,9 @@ resource "aws_cloudwatch_metric_alarm" "postgres_failed_auth" {
   namespace           = aws_cloudwatch_log_metric_filter.postgres_failed_auth.metric_transformation[0].namespace
   metric_name         = aws_cloudwatch_log_metric_filter.postgres_failed_auth.metric_transformation[0].name
   statistic           = "Sum"
-  period              = 300
+  period              = 600
   evaluation_periods  = 1
-  threshold           = 5
+  threshold           = 3
   comparison_operator = "GreaterThanOrEqualToThreshold"
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.security_alerts.arn]

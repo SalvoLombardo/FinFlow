@@ -93,6 +93,58 @@ resource "aws_security_group" "ec2" {
 }
 
 # ---------------------------------------------------------------
+# Network ACL — public subnets
+# Security Groups are allow-only; NACLs support DENY rules, used here to block
+# known scanner IPs on the Postgres port before they reach the instance.
+# NACLs are stateless: the allow-all-outbound rule covers ephemeral-port responses.
+# ---------------------------------------------------------------
+
+resource "aws_network_acl" "public" {
+  vpc_id     = aws_vpc.main.id
+  subnet_ids = aws_subnet.public[*].id
+  tags       = { Name = "${local.name}-public-nacl" }
+}
+
+# Deny known scanner IPs on the Postgres port — rule numbers 80, 81, 82...
+# Lower rule number = higher priority, so these fire before the allow-all at 100.
+resource "aws_network_acl_rule" "deny_scanner_postgres" {
+  count          = length(var.blocked_ips)
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 80 + count.index
+  egress         = false
+  protocol       = "tcp"
+  rule_action    = "deny"
+  cidr_block     = var.blocked_ips[count.index]
+  from_port      = 5432
+  to_port        = 5432
+}
+
+# Allow all other inbound traffic (preserves existing Security Group behaviour)
+resource "aws_network_acl_rule" "allow_all_inbound" {
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 100
+  egress         = false
+  protocol       = "-1"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 0
+  to_port        = 0
+}
+
+# Allow all outbound — NACLs are stateless, so response traffic on ephemeral ports
+# must be explicitly permitted here (Security Groups handle this automatically)
+resource "aws_network_acl_rule" "allow_all_outbound" {
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 100
+  egress         = true
+  protocol       = "-1"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 0
+  to_port        = 0
+}
+
+# ---------------------------------------------------------------
 # VPC Endpoints — S3 Gateway only (free)
 # Interface Endpoints (SQS/SNS/SSM) removed: Lambda is no longer
 # inside the VPC and calls AWS services directly over the internet.
