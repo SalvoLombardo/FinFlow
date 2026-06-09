@@ -163,6 +163,15 @@ resource "aws_instance" "workers" {
   }
 
   tags = { Name = "${local.name}-workers" }
+
+  lifecycle {
+    # data.aws_ami resolves to "most recent" at plan time — without this, every
+    # apply after Amazon publishes a newer al2023 image would replace the running
+    # instance (destroying Postgres/Redis/Celery; no separate EBS volume backs the
+    # DB, so this would mean data loss). Pin to whatever AMI is already running;
+    # bump deliberately (with a backup/migration plan) when an OS upgrade is wanted.
+    ignore_changes = [ami]
+  }
 }
 
 # Elastic IP — free when associated to a running instance

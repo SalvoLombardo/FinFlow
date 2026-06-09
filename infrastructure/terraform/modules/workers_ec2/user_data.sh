@@ -38,7 +38,7 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
   -subj "/CN=${project}-${environment}-postgres"
 # The official postgres image runs as the `postgres` user (uid/gid 999) and
 # refuses to start if its private key is group/world-readable.
-chown 999:999 /opt/${project}/certs/server.key /opt/${project}/certs/server.crt
+chown 70:70 /opt/${project}/certs/server.key /opt/${project}/certs/server.crt
 chmod 600 /opt/${project}/certs/server.key
 chmod 644 /opt/${project}/certs/server.crt
 
