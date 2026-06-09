@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "workers/**"
+      - ".github/workflows/workers-deploy.yml"
   workflow_dispatch:
 
 concurrency:
