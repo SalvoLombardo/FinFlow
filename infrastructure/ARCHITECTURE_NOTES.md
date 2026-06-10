@@ -93,9 +93,9 @@ After the 12-month Free Tier ends, costs would be approximately:
 | Concern | This portfolio deployment | Production |
 |---|---|---|
 | **Database** | PostgreSQL in Docker on a shared EC2 instance | Amazon RDS Multi-AZ with automated backups and point-in-time recovery |
-| **Network security** | PostgreSQL and Redis ports open to the internet, protected by password only | Database in a private subnet with no internet exposure; access restricted by VPC security groups |
-| **Lambda connectivity** | Lambda outside VPC, connects to DB over the public internet | Lambda inside VPC via private subnet; all traffic stays within the AWS network |
-| **Secrets at runtime** | Secrets embedded as Lambda environment variables at deploy time | AWS Secrets Manager with automatic rotation; secrets fetched at Lambda cold start |
+| **Network security** | PostgreSQL and Redis ports open to the internet, protected by password + TLS (`hostssl`, self-signed cert) and a CloudWatch alarm on repeated auth failures | Database in a private subnet with no internet exposure; access restricted by VPC security groups |
+| **Lambda connectivity** | Lambda outside VPC, connects to DB over the public internet (TLS-encrypted, `DATABASE_SSL_REQUIRE=true`) | Lambda inside VPC via private subnet; all traffic stays within the AWS network |
+| **Secrets at runtime** | `DATABASE_URL`/`SECRET_KEY`/`ENCRYPTION_KEY` fetched from SSM Parameter Store (SecureString) at cold start, not stored as plaintext Lambda env vars | AWS Secrets Manager with automatic rotation; secrets fetched at Lambda cold start |
 | **Audit log** | Kafka disabled in production (RAM constraint) | Kafka on a dedicated instance or Amazon MSK; audit trail always active |
 | **High availability** | Single EC2 — if the instance goes down, the database and workers go down | Separate managed services (RDS, ElastiCache, MSK), each with redundancy and automatic failover |
 | **Backups** | Manual EBS snapshots or none | RDS automated daily backups with configurable retention, point-in-time restore |

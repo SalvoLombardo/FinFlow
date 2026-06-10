@@ -101,7 +101,7 @@ no VPC Endpoints involved.
 | Scheduled tasks | Celery + Redis on EC2 t2.micro |
 | AI | Dual-mode: self-hosted Ollama or user API key (OpenAI / Anthropic / Gemini) |
 | IaC | Terraform |
-| CI/CD | GitHub Actions (Phase 7, not yet implemented) |
+| CI/CD | GitHub Actions |
 
 ---
 
@@ -366,7 +366,27 @@ Post-Free Tier strategy: schedule the EC2 to stop at night (~14 active hours/day
 | 4 | React frontend | Completed ✓ |
 | 5 | AI layer (dual-mode) | Completed ✓ |
 | 6 | Infrastructure as Code with Terraform | Completed ✓ |
-| 7 | CI/CD with GitHub Actions | Not started |
+| 7 | CI/CD with GitHub Actions | Completed ✓ |
+
+A cross-cutting **production-readiness hardening pass** is also underway (security,
+reliability, observability fixes across all phases) — see `PRODUCTION_READINESS.md`
+and `PRODUCTION_READINESS_TASK.md` for the tracked findings and progress.
+
+---
+
+## Deploy & rollback
+
+Each component has its own GitHub Actions workflow under `.github/workflows/`,
+triggered on push to `main` for the matching path (or manually via
+`workflow_dispatch`).
+
+| Component | Workflow | Deploy target | Rollback |
+|---|---|---|---|
+| Backend API | `backend-deploy.yml` | Lambda `finflow-prod-api` | **Automatic.** The previous Lambda package's S3 object version is captured before upload (the `finflow-prod-lambda-packages` bucket has versioning enabled). If the post-deploy `GET /health` smoke test fails, the workflow re-points the Lambda at that previous version and waits for it to take effect. The job still fails (visible in Actions), but the live Lambda is restored automatically. |
+| Lambda consumers (`projection`, `ai`, `notification`) | `consumers-deploy.yml` | `finflow-prod-*-consumer` | **Automatic.** Same previous-version capture as the backend. These Lambdas have no HTTP endpoint to smoke-test, so the rollback triggers if `aws lambda wait function-updated` itself reports the update failed, restoring the previous S3 object version. |
+| Frontend | `frontend-deploy.yml` | S3 + CloudFront | **Manual.** Re-run the workflow against a previous commit (or `git revert` + push) to rebuild and re-sync the previous build to S3, then invalidate the CloudFront distribution (`aws cloudfront create-invalidation --distribution-id <id> --paths "/*"`). |
+| Workers (Celery + Kafka audit) | `workers-deploy.yml` | EC2 `52.16.138.76` via rsync + `docker compose` | **Manual.** A post-deploy health check verifies all containers in `docker-compose.workers-prod.yml` are `running` and fails the job if not — but does not roll back automatically. To roll back: `git checkout <previous-commit> -- workers/ docker-compose.workers-prod.yml`, push (or re-run `workers-deploy.yml` from that commit), or SSH to the instance and `docker compose -f docker-compose.workers-prod.yml up -d --build` after manually restoring the previous `workers/` tree. |
+| Infrastructure | `terraform-plan.yml` (plan-only on PRs; `apply` is a manual, reviewed step) | AWS via Terraform | **Manual.** `terraform apply` is never automated. To roll back, check out the prior commit's Terraform configuration and run `terraform plan`/`apply` from there — review the plan carefully, since some resources (e.g. the workers EC2 instance) are pinned with `lifecycle { ignore_changes = [ami] }` to avoid accidental replacement. |
 
 ---
 
