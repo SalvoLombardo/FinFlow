@@ -82,5 +82,6 @@ async def run_consumer() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    from logging_config import setup_logging
+    setup_logging()
     asyncio.run(run_consumer())

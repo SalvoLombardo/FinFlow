@@ -3,9 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import auth, dashboard, goals, insights, settings as settings_routes, transactions, weeks
 from app.core.config import settings
+from app.core.log_config import RequestIdMiddleware, setup_logging
+
+setup_logging()
 
 app = FastAPI(title="FinFlow API", version="1.0.0", redirect_slashes=False)
 
+# RequestIdMiddleware must be added first (outermost layer) so trace_id is set
+# before any other middleware or route handler emits log lines.
+app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],

@@ -1,5 +1,14 @@
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import setup_logging as celery_setup_logging
+
+from logging_config import setup_logging as json_setup_logging
+
+
+@celery_setup_logging.connect
+def _configure_logging(**kwargs):
+    json_setup_logging()
+
 
 app = Celery(
     "finflow_workers",

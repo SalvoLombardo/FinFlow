@@ -1,14 +1,58 @@
+import json
 import logging
 import os
 import ssl
+from contextvars import ContextVar
 
 import boto3
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# ---------------------------------------------------------------------------
+# Structured JSON logging + per-message trace ID
+# ---------------------------------------------------------------------------
+
+_trace_id: ContextVar[str] = ContextVar("trace_id", default="-")
+
+
+def get_trace_id() -> str:
+    return _trace_id.get()
+
+
+def set_trace_id(tid: str) -> None:
+    _trace_id.set(tid or "-")
+
+
+class _JsonFormatter(logging.Formatter):
+    """Emit each log record as a single JSON line for CloudWatch Logs Insights."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        data: dict = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "trace_id": _trace_id.get(),
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            data["exc"] = self.formatException(record.exc_info)
+        return json.dumps(data, ensure_ascii=False)
+
+
+def _setup_logging() -> None:
+    formatter = _JsonFormatter()
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
+_setup_logging()
+
+logger = logging.getLogger(__name__)
 
 _ssm_client = None
 _secret_cache: dict[str, str] = {}
@@ -72,6 +116,7 @@ Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False
 
 class SQSEvent(BaseModel):
     """Envelope common to all three SQS consumer handlers."""
+    event_id: str = ""   # populated from FinFlowEvent.event_id; used as trace_id in logs
     event_type: str
     user_id: str
     payload: dict

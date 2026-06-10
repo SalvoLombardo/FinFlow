@@ -4,7 +4,7 @@ import uuid
 
 from sqlalchemy import text
 
-from deps import Session, SQSEvent, logger
+from deps import Session, SQSEvent, logger, set_trace_id
 from providers import SYSTEM_PROMPT, generate
 
 
@@ -18,10 +18,14 @@ async def _handler(event: dict) -> dict:
         try:
             body = json.loads(record["body"])
             raw = json.loads(body["Message"])
-            await _process(SQSEvent(**raw))
+            ev = SQSEvent(**raw)
+            set_trace_id(ev.event_id or record["messageId"])
+            await _process(ev)
         except Exception as exc:
             logger.error("Failed %s: %s", record["messageId"], exc, exc_info=True)
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
+        finally:
+            set_trace_id("-")
     return {"batchItemFailures": batch_item_failures}
 
 

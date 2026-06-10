@@ -4,7 +4,7 @@ from decimal import Decimal
 import os
 import aioboto3
 
-from deps import SQSEvent, logger
+from deps import SQSEvent, logger, set_trace_id
 
 NOTIFICATION_TOPIC_ARN = os.environ.get("AWS_NOTIFICATION_TOPIC_ARN", "")
 AWS_REGION = os.environ.get("AWS_REGION", "eu-west-1")
@@ -23,10 +23,14 @@ async def _handler(event: dict) -> dict:
         try:
             body = json.loads(record["body"])
             raw = json.loads(body["Message"])
-            await _process(SQSEvent(**raw))
+            ev = SQSEvent(**raw)
+            set_trace_id(ev.event_id or record["messageId"])
+            await _process(ev)
         except Exception as exc:
             logger.error("Failed %s: %s", record["messageId"], exc, exc_info=True)
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
+        finally:
+            set_trace_id("-")
     return {"batchItemFailures": batch_item_failures}
 
 

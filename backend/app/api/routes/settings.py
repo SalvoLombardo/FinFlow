@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from cryptography.fernet import Fernet
@@ -20,6 +21,7 @@ from app.schemas.settings import (
 from app.services.ai.service import AIService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +95,10 @@ async def test_ai_settings(
             weeks_analyzed=4,
         )
     except Exception as exc:
+        logger.error("AI provider call failed for user %s: %s", current_user.id, exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI provider error: {exc}",
+            detail="AI provider is temporarily unavailable. Please try again later.",
         )
     return {"response": response}
 
