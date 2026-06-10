@@ -218,3 +218,31 @@ async def test_generate_retries_through_call_with_retry():
 
     assert result == "consiglio finale"
     assert flaky.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# _decrypt_key — error clarity
+# ---------------------------------------------------------------------------
+
+def test_decrypt_key_wraps_invalid_token_with_descriptive_error():
+    import providers
+    from cryptography.fernet import Fernet
+
+    encrypted_with = Fernet.generate_key()
+    decrypted_with = Fernet.generate_key()
+    token = Fernet(encrypted_with).encrypt(b"sk-some-api-key").decode()
+
+    with patch("deps.get_secret", return_value=decrypted_with.decode()):
+        with pytest.raises(providers.AIKeyDecryptionError, match="ENCRYPTION_KEY"):
+            providers._decrypt_key(token)
+
+
+def test_decrypt_key_succeeds_with_matching_key():
+    import providers
+    from cryptography.fernet import Fernet
+
+    key = Fernet.generate_key()
+    token = Fernet(key).encrypt(b"sk-some-api-key").decode()
+
+    with patch("deps.get_secret", return_value=key.decode()):
+        assert providers._decrypt_key(token) == "sk-some-api-key"

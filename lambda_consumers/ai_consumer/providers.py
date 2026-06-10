@@ -35,12 +35,22 @@ SYSTEM_PROMPT = (
 )
 
 
+class AIKeyDecryptionError(Exception):
+    """Raised when api_key_enc cannot be decrypted with the configured ENCRYPTION_KEY."""
+
+
 def _decrypt_key(enc: str) -> str:
-    from cryptography.fernet import Fernet
+    from cryptography.fernet import Fernet, InvalidToken
     from deps import get_secret
 
     key = get_secret("ENCRYPTION_KEY", "encryption_key")
-    return Fernet(key.encode()).decrypt(enc.encode()).decode()
+    try:
+        return Fernet(key.encode()).decrypt(enc.encode()).decode()
+    except InvalidToken as exc:
+        raise AIKeyDecryptionError(
+            "Failed to decrypt AI provider API key — ENCRYPTION_KEY may not match "
+            "the key used to encrypt it, or api_key_enc is corrupted/truncated."
+        ) from exc
 
 
 def _status_code(exc: Exception) -> int | None:
