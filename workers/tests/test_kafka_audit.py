@@ -158,8 +158,31 @@ async def test_write_batch_s3_puts_newline_joined_content():
     assert kwargs["Key"].endswith(".jsonl")
 
 
-async def test_write_batch_s3_failure_propagates():
-    """No retry around s3.put_object — failure raises and stops the consumer loop."""
+async def test_write_batch_s3_retries_then_succeeds():
+    """First attempt fails, second succeeds — no fallback, no metric."""
+    mock_s3 = AsyncMock()
+    mock_s3.put_object.side_effect = [Exception("transient"), None]
+    mock_session = MagicMock()
+    mock_session.client.return_value.__aenter__ = AsyncMock(return_value=mock_s3)
+    mock_session.client.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("kafka_audit.consumer.S3_AUDIT_BUCKET", "my-bucket"),
+        patch("kafka_audit.consumer.aioboto3.Session", return_value=mock_session),
+        patch("kafka_audit.consumer.asyncio.sleep", new=AsyncMock()),
+        patch("kafka_audit.consumer._emit_s3_failure_metric") as mock_metric,
+        patch("kafka_audit.consumer._write_local") as mock_local,
+    ):
+        from kafka_audit.consumer import _write_batch
+        await _write_batch([b'{"a":1}'])
+
+    assert mock_s3.put_object.call_count == 2
+    mock_metric.assert_not_called()
+    mock_local.assert_not_called()
+
+
+async def test_write_batch_s3_failure_falls_back_to_local_and_emits_metric():
+    """All S3 attempts fail — batch is written locally and a CloudWatch metric is emitted."""
     mock_s3 = AsyncMock()
     mock_s3.put_object.side_effect = Exception("S3 unavailable")
     mock_session = MagicMock()
@@ -169,10 +192,36 @@ async def test_write_batch_s3_failure_propagates():
     with (
         patch("kafka_audit.consumer.S3_AUDIT_BUCKET", "my-bucket"),
         patch("kafka_audit.consumer.aioboto3.Session", return_value=mock_session),
+        patch("kafka_audit.consumer.asyncio.sleep", new=AsyncMock()),
+        patch("kafka_audit.consumer._emit_s3_failure_metric") as mock_metric,
+        patch("kafka_audit.consumer._write_local") as mock_local,
     ):
         from kafka_audit.consumer import _write_batch
-        with pytest.raises(Exception, match="S3 unavailable"):
-            await _write_batch([b'{"a":1}'])
+        await _write_batch([b'{"a":1}'])
+
+    assert mock_s3.put_object.call_count == 3
+    mock_metric.assert_called_once()
+    mock_local.assert_called_once()
+
+
+def test_emit_s3_failure_metric_calls_put_metric_data_with_correct_args():
+    mock_cw = MagicMock()
+    with patch("kafka_audit.consumer.boto3.client", return_value=mock_cw):
+        from kafka_audit.consumer import _emit_s3_failure_metric
+        _emit_s3_failure_metric()
+
+    mock_cw.put_metric_data.assert_called_once()
+    kwargs = mock_cw.put_metric_data.call_args.kwargs
+    assert kwargs["Namespace"] == "FinFlow/Audit"
+    assert kwargs["MetricData"][0]["MetricName"] == "AuditS3WriteFailures"
+
+
+def test_emit_s3_failure_metric_does_not_raise_on_cloudwatch_failure():
+    mock_cw = MagicMock()
+    mock_cw.put_metric_data.side_effect = Exception("cw unavailable")
+    with patch("kafka_audit.consumer.boto3.client", return_value=mock_cw):
+        from kafka_audit.consumer import _emit_s3_failure_metric
+        _emit_s3_failure_metric()  # must not raise
 
 
 # ---------------------------------------------------------------------------

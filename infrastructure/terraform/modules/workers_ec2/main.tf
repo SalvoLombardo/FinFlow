@@ -69,6 +69,24 @@ resource "aws_cloudwatch_metric_alarm" "kafka_audit_dropped" {
   alarm_actions       = [aws_sns_topic.security_alerts.arn]
 }
 
+# Audit consumer emits this metric when all 3 S3 put_object retries are exhausted
+# and a batch falls back to local disk on the EC2 instance. Not a data-loss event
+# (the batch is still written locally), but the audit trail is no longer landing in
+# S3 — worth investigating before local disk fills up or the instance is replaced.
+resource "aws_cloudwatch_metric_alarm" "kafka_audit_s3_write_failed" {
+  alarm_name          = "${local.name}-kafka-audit-s3-write-failed"
+  alarm_description   = "Kafka audit consumer fell back to local disk after S3 put_object failed 3 times."
+  namespace           = "FinFlow/Audit"
+  metric_name         = "AuditS3WriteFailures"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_sns_topic.security_alerts.arn]
+}
+
 # ---------------------------------------------------------------
 # IAM role for EC2 workers
 # ---------------------------------------------------------------
