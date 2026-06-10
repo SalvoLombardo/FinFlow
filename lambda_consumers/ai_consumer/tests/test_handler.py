@@ -20,6 +20,12 @@ def _make_sqs_event(event_type: str, payload: dict, msg_id: str = "msg-001") -> 
     return {"Records": [{"body": body, "messageId": msg_id}]}
 
 
+def _make_dup_check_result(found: bool) -> MagicMock:
+    result = MagicMock()
+    result.first.return_value = object() if found else None
+    return result
+
+
 def _make_session_mock(execute_side_effects: list | None = None) -> AsyncMock:
     """Return an async context manager mock that wraps a session."""
     session = AsyncMock()
@@ -191,3 +197,64 @@ async def test_process_uses_weekly_prompt_for_budget_updated():
         await h._process(ev)
 
     assert "Settimana" in captured_prompt.get("prompt", "")
+
+
+# ---------------------------------------------------------------------------
+# _process — idempotency on redelivered SQS messages
+# ---------------------------------------------------------------------------
+
+async def test_process_skips_duplicate_event_id():
+    import handler as h
+
+    ev = h.SQSEvent(
+        event_id="evt-123",
+        event_type="ai.analysis.requested",
+        user_id=str(uuid.uuid4()),
+        payload={"insight_type": "savings_tip"},
+    )
+    factory, session = _make_session_mock()
+    ai_row = _make_ai_row(enabled=True)
+
+    session.execute = AsyncMock(side_effect=[
+        _make_execute_result(ai_row),  # AI settings
+        _make_dup_check_result(found=True),  # duplicate found
+    ])
+
+    with patch.object(h, "Session", factory), \
+         patch("handler.generate", new=AsyncMock(return_value="should not be called")):
+        await h._process(ev)
+
+    session.commit.assert_not_awaited()
+
+
+async def test_process_persists_source_event_id_when_not_duplicate():
+    import handler as h
+
+    ev = h.SQSEvent(
+        event_id="evt-456",
+        event_type="ai.analysis.requested",
+        user_id=str(uuid.uuid4()),
+        payload={"insight_type": "savings_tip"},
+    )
+    factory, session = _make_session_mock()
+    ai_row = _make_ai_row(enabled=True)
+
+    week_result = MagicMock()
+    week_result.mappings.return_value.all.return_value = []  # no weeks → short prompt
+
+    insert_result = MagicMock()
+
+    session.execute = AsyncMock(side_effect=[
+        _make_execute_result(ai_row),       # AI settings
+        _make_dup_check_result(found=False),  # no duplicate
+        week_result,                        # weeks query
+        insert_result,                      # INSERT INTO ai_insights
+    ])
+
+    with patch.object(h, "Session", factory), \
+         patch("handler.generate", new=AsyncMock(return_value="Ottimo risparmio!")):
+        await h._process(ev)
+
+    session.commit.assert_awaited_once()
+    insert_call = session.execute.call_args_list[-1]
+    assert insert_call.args[1]["source_event_id"] == "evt-456"

@@ -48,6 +48,23 @@ async def _process(ev: SQSEvent) -> None:
             logger.info("AI not enabled for user %s — skipping", ev.user_id)
             return
 
+        # --- Idempotency: SQS may redeliver a message we already processed ---
+        if ev.event_id:
+            dup = await session.execute(
+                text(
+                    "SELECT 1 FROM ai_insights "
+                    "WHERE user_id = :uid AND source_event_id = :eid"
+                ),
+                {"uid": user_uuid, "eid": ev.event_id},
+            )
+            if dup.first() is not None:
+                logger.info(
+                    "Duplicate delivery for event_id=%s user=%s — skipping",
+                    ev.event_id,
+                    ev.user_id,
+                )
+                return
+
         # --- Build prompt based on event type ---
         insight_type = ev.payload.get("insight_type", "savings_tip")
 
@@ -73,8 +90,9 @@ async def _process(ev: SQSEvent) -> None:
         await session.execute(
             text(
                 "INSERT INTO ai_insights "
-                "  (id, user_id, insight_type, content, model_used, is_read) "
-                "VALUES (:id, :uid, :itype, :content, :model, false)"
+                "  (id, user_id, insight_type, content, model_used, is_read, source_event_id) "
+                "VALUES (:id, :uid, :itype, :content, :model, false, :source_event_id) "
+                "ON CONFLICT (user_id, source_event_id) DO NOTHING"
             ),
             {
                 "id": str(uuid.uuid4()),
@@ -82,6 +100,7 @@ async def _process(ev: SQSEvent) -> None:
                 "itype": insight_type,
                 "content": content,
                 "model": model_label,
+                "source_event_id": ev.event_id or None,
             },
         )
         await session.commit()

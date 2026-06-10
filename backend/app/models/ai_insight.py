@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,3 +18,8 @@ class AIInsight(Base):
     model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "source_event_id", name="uq_ai_insights_user_source_event"),
+    )
