@@ -83,6 +83,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Capture previous Lambda package version
+        id: prev_version
+        run: |
+          PREV=$(aws s3api head-object --bucket ${{ env.S3_BUCKET }} --key ${{ matrix.consumer.s3_key }} \
+            --query VersionId --output text 2>/dev/null || echo "none")
+          echo "version=$PREV" >> "$GITHUB_OUTPUT"
+
       - name: Upload zip to S3
         run: |
           aws s3 cp /tmp/consumer.zip \
@@ -97,6 +104,21 @@ jobs:
             --output json
 
       - name: Wait for Lambda update to complete
+        id: wait_update
         run: |
           aws lambda wait function-updated \
             --function-name ${{ matrix.consumer.lambda_fn }}
+
+      - name: Roll back to previous Lambda package on update failure
+        if: failure() && steps.wait_update.outcome == 'failure' && steps.prev_version.outputs.version != 'none'
+        run: |
+          echo "Update failed — rolling back ${{ matrix.consumer.lambda_fn }} to S3 object version ${{ steps.prev_version.outputs.version }}"
+          aws lambda update-function-code \
+            --function-name ${{ matrix.consumer.lambda_fn }} \
+            --s3-bucket ${{ env.S3_BUCKET }} \
+            --s3-key ${{ matrix.consumer.s3_key }} \
+            --s3-object-version ${{ steps.prev_version.outputs.version }} \
+            --output json
+          aws lambda wait function-updated \
+            --function-name ${{ matrix.consumer.lambda_fn }}
+          echo "Rollback complete"

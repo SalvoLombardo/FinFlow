@@ -86,3 +86,16 @@ jobs:
             "cd ${{ env.REMOTE_DIR }} && \
              docker compose -f docker-compose.workers-prod.yml up -d --build && \
              docker compose -f docker-compose.workers-prod.yml ps"
+
+      - name: Post-deploy health check
+        run: |
+          ssh -i ~/.ssh/ec2_key ${{ env.EC2_USER }}@${{ env.EC2_HOST }} \
+            "cd ${{ env.REMOTE_DIR }} && \
+             sleep 10 && \
+             STATUSES=\$(docker compose -f docker-compose.workers-prod.yml ps --format '{{.Name}}: {{.State}}') && \
+             echo \"\$STATUSES\" && \
+             if echo \"\$STATUSES\" | grep -qv 'running'; then
+               echo 'One or more containers are not running'
+               exit 1
+             fi
+             echo 'All containers running'"

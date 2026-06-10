@@ -76,6 +76,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Capture previous Lambda package version
+        id: prev_version
+        run: |
+          PREV=$(aws s3api head-object --bucket ${{ env.S3_BUCKET }} --key ${{ env.S3_KEY }} \
+            --query VersionId --output text 2>/dev/null || echo "none")
+          echo "version=$PREV" >> "$GITHUB_OUTPUT"
+
       - name: Upload zip to S3
         run: aws s3 cp /tmp/handler.zip s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}
 
@@ -93,6 +100,7 @@ jobs:
             --function-name ${{ env.LAMBDA_FUNCTION }}
 
       - name: Smoke test GET /health
+        id: smoke_test
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.HEALTH_URL }}")
           if [ "$STATUS" != "200" ]; then
@@ -100,3 +108,17 @@ jobs:
             exit 1
           fi
           echo "Smoke test PASSED: /health returned HTTP $STATUS"
+
+      - name: Roll back to previous Lambda package on smoke-test failure
+        if: failure() && steps.smoke_test.outcome == 'failure' && steps.prev_version.outputs.version != 'none'
+        run: |
+          echo "Smoke test failed — rolling back ${{ env.LAMBDA_FUNCTION }} to S3 object version ${{ steps.prev_version.outputs.version }}"
+          aws lambda update-function-code \
+            --function-name ${{ env.LAMBDA_FUNCTION }} \
+            --s3-bucket ${{ env.S3_BUCKET }} \
+            --s3-key ${{ env.S3_KEY }} \
+            --s3-object-version ${{ steps.prev_version.outputs.version }} \
+            --output json
+          aws lambda wait function-updated \
+            --function-name ${{ env.LAMBDA_FUNCTION }}
+          echo "Rollback complete"
